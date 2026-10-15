@@ -1,0 +1,7 @@
+{
+  "name": "Tinta & Trama",
+  "description": "Atelier literario y estudio editorial móvil para autores: biblioteca de manuscritos, fichas de personajes y tablero de vínculos, editor inmersivo y arquitectura de trama.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
