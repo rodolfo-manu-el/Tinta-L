@@ -104,12 +104,22 @@ fun BibliotecaScreen(
             totalWords = allNovels.sumOf { it.wordCount }
         )
 
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val documentImportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        ) { uri: android.net.Uri? ->
+            if (uri != null) {
+                viewModel.importDocument(uri, context)
+            }
+        }
+
         // Search & Filter
         SearchAndFilterBar(
             searchQuery = searchQuery,
             selectedFilter = selectedFilter,
             onSearchChange = { viewModel.onSearchQueryChanged(it) },
             onClearSearch = { viewModel.clearSearchQuery() },
+            onImportClick = { documentImportLauncher.launch("*/*") },
             onFilterClick = {
                 val nextFilter = when (selectedFilter) {
                     FilterOption.ALL -> FilterOption.IN_PROGRESS
@@ -357,6 +367,7 @@ private fun SearchAndFilterBar(
     selectedFilter: FilterOption,
     onSearchChange: (String) -> Unit,
     onClearSearch: () -> Unit,
+    onImportClick: () -> Unit,
     onFilterClick: () -> Unit,
     onNewStoryClick: () -> Unit
 ) {
@@ -411,6 +422,22 @@ private fun SearchAndFilterBar(
                 .height(48.dp)
                 .testTag("search_input")
         )
+
+        IconButton(
+            onClick = onImportClick,
+            modifier = Modifier
+                .size(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .testTag("import_document_button")
+        ) {
+            Icon(
+                imageVector = Icons.Default.UploadFile,
+                contentDescription = "Importar documento (.md, .docx)",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
 
         IconButton(
             onClick = onFilterClick,
@@ -592,16 +619,31 @@ private fun SectionFeaturedNovel(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                            ) {
-                                Text(
-                                    text = novel.status.uppercase(),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                            if (novel.isTutorial) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "✨ TUTORIAL",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = novel.status.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                             Text(
                                 text = "Libro I",
@@ -770,11 +812,7 @@ private fun SectionSecondaryNovels(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val coverRes = when (novel.coverDrawableName) {
-                        "cover_bruma" -> R.drawable.cover_bruma
-                        "cover_helio" -> R.drawable.cover_helio
-                        else -> R.drawable.cover_silencio
-                    }
+                    val customCoverFile = novel.customCoverPath?.let { java.io.File(it) }
 
                     Box(
                         modifier = Modifier
@@ -783,12 +821,26 @@ private fun SectionSecondaryNovels(
                             .clip(RoundedCornerShape(6.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                     ) {
-                        Image(
-                            painter = painterResource(id = coverRes),
-                            contentDescription = novel.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        if (customCoverFile != null && customCoverFile.exists()) {
+                            coil.compose.AsyncImage(
+                                model = customCoverFile,
+                                contentDescription = novel.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val coverRes = when (novel.coverDrawableName) {
+                                "cover_bruma" -> R.drawable.cover_bruma
+                                "cover_helio" -> R.drawable.cover_helio
+                                else -> R.drawable.cover_silencio
+                            }
+                            Image(
+                                painter = painterResource(id = coverRes),
+                                contentDescription = novel.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()

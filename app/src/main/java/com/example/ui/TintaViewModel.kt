@@ -249,6 +249,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     val backupJsonString: StateFlow<String?> = _backupJsonString.asStateFlow()
 
     init {
+        checkAndCreateTutorialOnFirstRun()
         viewModelScope.launch {
             allNovels.collect { novels ->
                 if (_selectedNovelId.value.isNullOrBlank() && novels.isNotEmpty()) {
@@ -262,6 +263,71 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                         selectChapter(chapters.first().id)
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Detección de primera ejecución mediante SharedPreferences y creación automática
+     * de la historia tutorial "Bienvenido a Tinta" con bandera especial (`isTutorial = true`).
+     */
+    private fun checkAndCreateTutorialOnFirstRun() {
+        val context = getApplication<Application>().applicationContext
+        val prefs = context.getSharedPreferences("tinta_prefs", Context.MODE_PRIVATE)
+        val isFirstRun = prefs.getBoolean("is_first_run", true)
+
+        if (isFirstRun) {
+            viewModelScope.launch {
+                val tutorialId = "bienvenido-a-tinta"
+                val tutorialNovel = Novel(
+                    id = tutorialId,
+                    title = "Bienvenido a Tinta",
+                    subtitle = "Tutorial interactivo para escritores",
+                    genre = "Guía & Onboarding",
+                    tropes = "✨ Tutorial interactivo",
+                    wordCount = 450,
+                    targetWords = 500,
+                    completedChapters = 2,
+                    totalChapters = 2,
+                    progressPercent = 100,
+                    coverDrawableName = "cover_silencio",
+                    status = "Tutorial",
+                    lastEdited = "Ahora",
+                    isFeatured = true,
+                    synopsis = "¡Hola escritor! Esta historia interactiva te guiara paso a paso por todas las herramientas de Tinta & Trama.",
+                    isTutorial = true
+                )
+
+                val cap1 = Chapter(
+                    id = "${tutorialId}_cap_1",
+                    novelId = tutorialId,
+                    number = 1,
+                    title = "El Atelier de Escritura",
+                    actName = "Capítulo 1",
+                    content = "# Bienvenido a Tinta & Trama\n\nEste es tu **nuevo espacio de creación literaria**. Aquí podrás redactar tus manuscritos con formato enriquecido fluido, organizar capítulos y consultar notas al margen.\n\n### ✍️ ¿Cómo usar la barra de herramientas?\n- Usa los botones **B** y *I* para dar estilo a tus palabras.\n- Pulsa **H1** para añadir títulos a tus escenas.\n- Selecciona diferentes **estilos de papel** (Pergamino, Rayado, Retícula o Limpio) en la barra inferior.\n\n*Continúa leyendo en el Capítulo 2 para descubrir cómo gestionar tus portadas y exportar tus historias.*",
+                    wordCount = 100,
+                    isFinished = true,
+                    lastSynced = "Ahora"
+                )
+
+                val cap2 = Chapter(
+                    id = "${tutorialId}_cap_2",
+                    novelId = tutorialId,
+                    number = 2,
+                    title = "Carátulas y Exportación SAF",
+                    actName = "Capítulo 2",
+                    content = "# Gestión de Obras y Archivos\n\n### 🎨 Personaliza tus Portadas\nEn la pantalla **Obra**, simplemente toca la imagen de la portada para abrir la galería de tu teléfono con el Storage Access Framework (SAF), seleccionar tu imagen favorita y guardarla de forma segura.\n\n### 📄 Importación y Exportación\n- Puedes importar cualquier documento `.md` o `.docx` directamente desde tu dispositivo.\n- Al terminar tu historia, exspórtala en formato **PDF**, **Word (.docx)** o **Markdown (.md)** de forma nativa.\n\n¡Disfruta escribiendo tu próximo gran manuscrito!",
+                    wordCount = 110,
+                    isFinished = true,
+                    lastSynced = "Ahora"
+                )
+
+                repository.insertNovel(tutorialNovel)
+                repository.insertChapter(cap1)
+                repository.insertChapter(cap2)
+
+                prefs.edit().putBoolean("is_first_run", false).apply()
+                selectNovel(tutorialId)
             }
         }
     }
@@ -675,6 +741,69 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Actualiza la carátula o portada personalizada de la historia seleccionada.
+     * Copia la imagen a través de SAF/URI al almacenamiento privado interno de la app
+     * y guarda la ruta del archivo local en la base de datos para garantizar persistencia con Scoped Storage.
+     */
+    fun updateNovelCover(novelId: String, uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val coversDir = java.io.File(context.filesDir, "covers")
+                if (!coversDir.exists()) coversDir.mkdirs()
+
+                val destFile = java.io.File(coversDir, "cover_${novelId}_${System.currentTimeMillis()}.jpg")
+
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(input)
+                    if (bitmap != null) {
+                        // Center-crop y escalado a proporciones de carátula editorial (3:4)
+                        val targetWidth = 600
+                        val targetHeight = 800
+
+                        val srcWidth = bitmap.width
+                        val srcHeight = bitmap.height
+
+                        val targetAspect = targetWidth.toFloat() / targetHeight.toFloat()
+                        val srcAspect = srcWidth.toFloat() / srcHeight.toFloat()
+
+                        val cropWidth: Int
+                        val cropHeight: Int
+
+                        if (srcAspect > targetAspect) {
+                            cropHeight = srcHeight
+                            cropWidth = (srcHeight * targetAspect).toInt()
+                        } else {
+                            cropWidth = srcWidth
+                            cropHeight = (srcWidth / targetAspect).toInt()
+                        }
+
+                        val cropX = (srcWidth - cropWidth) / 2
+                        val cropY = (srcHeight - cropHeight) / 2
+
+                        val croppedBitmap = android.graphics.Bitmap.createBitmap(bitmap, cropX, cropY, cropWidth, cropHeight)
+                        val finalCoverBitmap = android.graphics.Bitmap.createScaledBitmap(croppedBitmap, targetWidth, targetHeight, true)
+
+                        java.io.FileOutputStream(destFile).use { out ->
+                            finalCoverBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                        }
+
+                        val novel = repository.getNovelById(novelId).firstOrNull()
+                        if (novel != null) {
+                            val updatedNovel = novel.copy(customCoverPath = destFile.absolutePath)
+                            repository.insertNovel(updatedNovel)
+                            showToast("Portada de la historia actualizada")
+                        }
+                    } else {
+                        showToast("No se pudo procesar el formato de la imagen")
+                    }
+                }
+            } catch (e: Exception) {
+                showToast("Error al guardar portada: ${e.message}")
+            }
+        }
+    }
+
     fun createBackup() {
         viewModelScope.launch {
             val novels = allNovels.value
@@ -691,6 +820,149 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
+    /**
+     * Importa un documento local (.md o .docx) usando Storage Access Framework (SAF).
+     * Analiza el archivo para extraer el título y dividir capítulos según los encabezados.
+     */
+    fun importDocument(uri: Uri, context: Context) {
+        viewModelScope.launch {
+            try {
+                val contentResolver = context.contentResolver
+                val fileName = getFileNameFromUri(uri, contentResolver) ?: "documento_importado"
+                val rawText = if (fileName.endsWith(".docx", ignoreCase = true)) {
+                    extractTextFromDocx(uri, contentResolver)
+                } else {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        stream.bufferedReader().use { it.readText() }
+                    } ?: ""
+                }
+
+                if (rawText.isBlank()) {
+                    showToast("El archivo seleccionado está vacío o no se pudo leer.")
+                    return@launch
+                }
+
+                // Parse document title and chapters
+                val title = fileName.substringBeforeLast(".").replace("_", " ").replace("-", " ")
+                    .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+
+                val novelId = "imported_${System.currentTimeMillis()}"
+
+                // Parse chapters from headings (# or Heading)
+                val lines = rawText.lines()
+                val chapterBlocks = mutableListOf<Pair<String, String>>() // Title to Content
+                var currentCapTitle = "Capítulo 1"
+                val currentCapText = StringBuilder()
+
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("# ") || trimmed.startsWith("## ") || trimmed.startsWith("Capítulo", ignoreCase = true)) {
+                        if (currentCapText.isNotBlank()) {
+                            chapterBlocks.add(Pair(currentCapTitle, currentCapText.toString().trim()))
+                            currentCapText.clear()
+                        }
+                        currentCapTitle = trimmed.removePrefix("# ").removePrefix("## ").trim()
+                    } else {
+                        currentCapText.append(line).append("\n")
+                    }
+                }
+                if (currentCapText.isNotBlank()) {
+                    chapterBlocks.add(Pair(currentCapTitle, currentCapText.toString().trim()))
+                }
+
+                val totalWordCount = chapterBlocks.sumOf { block ->
+                    block.second.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+                }
+
+                val novel = Novel(
+                    id = novelId,
+                    title = title,
+                    subtitle = "Importado desde $fileName",
+                    genre = "Manuscrito Importado",
+                    tropes = "📄 Documento importado",
+                    wordCount = totalWordCount,
+                    targetWords = (totalWordCount * 1.2).toInt().coerceAtLeast(10000),
+                    completedChapters = chapterBlocks.size,
+                    totalChapters = chapterBlocks.size,
+                    progressPercent = 100,
+                    coverDrawableName = "cover_silencio",
+                    status = "Importado",
+                    lastEdited = "Ahora",
+                    isFeatured = false,
+                    synopsis = "Manuscrito importado a Tinta & Trama desde el archivo '$fileName'."
+                )
+                repository.insertNovel(novel)
+
+                chapterBlocks.forEachIndexed { index, (capTitle, capContent) ->
+                    val numWords = capContent.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+                    val ch = Chapter(
+                        id = "${novelId}_cap_${index + 1}",
+                        novelId = novelId,
+                        number = index + 1,
+                        title = capTitle,
+                        actName = "Capítulo ${index + 1}",
+                        content = capContent,
+                        wordCount = numWords,
+                        isFinished = true,
+                        lastSynced = "Ahora"
+                    )
+                    repository.insertChapter(ch)
+                }
+
+                selectNovel(novelId)
+                showToast("📥 Obra '$title' importada exitosamente (${chapterBlocks.size} capítulos)")
+            } catch (e: Exception) {
+                showToast("Error al importar documento: ${e.message}")
+            }
+        }
+    }
+
+    private fun getFileNameFromUri(uri: Uri, resolver: android.content.ContentResolver): String? {
+        var name: String? = null
+        val cursor = resolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1) {
+                    name = it.getString(nameIndex)
+                }
+            }
+        }
+        return name ?: uri.path?.substringAfterLast('/')
+    }
+
+    private fun extractTextFromDocx(uri: Uri, resolver: android.content.ContentResolver): String {
+        val textBuilder = StringBuilder()
+        resolver.openInputStream(uri)?.use { inputStream ->
+            java.util.zip.ZipInputStream(inputStream).use { zipStream ->
+                var entry = zipStream.nextEntry
+                while (entry != null) {
+                    if (entry.name == "word/document.xml") {
+                        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+                        val builder = factory.newDocumentBuilder()
+                        val doc = builder.parse(zipStream)
+                        val paragraphs = doc.getElementsByTagName("w:p")
+                        for (i in 0 until paragraphs.length) {
+                            val p = paragraphs.item(i)
+                            // Extract paragraph text content
+                            val pText = p.textContent
+                            if (pText.isNotBlank()) {
+                                textBuilder.append(pText).append("\n\n")
+                            }
+                        }
+                        break
+                    }
+                    zipStream.closeEntry()
+                    entry = zipStream.nextEntry
+                }
+            }
+        }
+        return textBuilder.toString()
+    }
+
+    /**
+     * Exporta el manuscrito en PDF, Word (.docx) o Markdown (.md).
+     */
     fun exportManuscript(format: String, context: Context) {
         val novel = currentNovel.value ?: return
         val chapters = activeChapters.value
@@ -700,41 +972,30 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val fileName = "${novel.title.lowercase().replace("[^a-z0-9]".toRegex(), "_")}_manuscrito"
-        val contentBuilder = StringBuilder()
-        contentBuilder.append("# ${novel.title}\n")
-        contentBuilder.append("## ${novel.subtitle}\n\n")
-        contentBuilder.append("Género: ${novel.genre}\n")
-        contentBuilder.append("Sinopsis: ${novel.synopsis}\n\n")
-        contentBuilder.append("=========================================\n\n")
-
-        for (ch in chapters) {
-            contentBuilder.append("### Capítulo ${ch.number}: ${ch.title}\n\n")
-            contentBuilder.append("${ch.content}\n\n")
-            contentBuilder.append("-----------------------------------------\n\n")
-        }
 
         try {
-            val extension = when (format.lowercase()) {
-                "pdf" -> "pdf"
-                "epub" -> "epub"
-                else -> "md"
-            }
-            val mimeType = when (format.lowercase()) {
-                "pdf" -> "application/pdf"
-                "epub" -> "application/epub+zip"
-                else -> "text/markdown"
-            }
-
             val exportDir = java.io.File(context.cacheDir, "exports")
             if (!exportDir.exists()) exportDir.mkdirs()
 
-            val file = java.io.File(exportDir, "$fileName.$extension")
-            file.writeText(contentBuilder.toString())
+            val extension = format.lowercase()
+            val exportFile = java.io.File(exportDir, "$fileName.$extension")
+
+            when (extension) {
+                "pdf" -> generatePdfExport(novel, chapters, exportFile)
+                "docx" -> generateDocxExport(novel, chapters, exportFile)
+                else -> generateMarkdownExport(novel, chapters, exportFile)
+            }
+
+            val mimeType = when (extension) {
+                "pdf" -> "application/pdf"
+                "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                else -> "text/markdown"
+            }
 
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
-                file
+                exportFile
             )
 
             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
@@ -751,6 +1012,180 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             showToast("Error al exportar: ${e.message}")
         }
+    }
+
+    private fun generateMarkdownExport(novel: Novel, chapters: List<Chapter>, outputFile: java.io.File) {
+        val contentBuilder = StringBuilder()
+        contentBuilder.append("# ${novel.title}\n")
+        contentBuilder.append("## ${novel.subtitle}\n\n")
+        contentBuilder.append("Género: ${novel.genre}\n")
+        contentBuilder.append("Sinopsis: ${novel.synopsis}\n\n")
+        contentBuilder.append("=========================================\n\n")
+
+        for (ch in chapters) {
+            contentBuilder.append("### Capítulo ${ch.number}: ${ch.title}\n\n")
+            contentBuilder.append("${ch.content}\n\n")
+            contentBuilder.append("-----------------------------------------\n\n")
+        }
+
+        outputFile.writeText(contentBuilder.toString())
+    }
+
+    private fun generatePdfExport(novel: Novel, chapters: List<Chapter>, outputFile: java.io.File) {
+        val pdfDocument = android.graphics.pdf.PdfDocument()
+        val pageWidth = 595 // A4 standard width
+        val pageHeight = 842 // A4 standard height
+
+        val titlePaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 24f
+            isFakeBoldText = true
+        }
+        val headerPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.DKGRAY
+            textSize = 16f
+            isFakeBoldText = true
+        }
+        val bodyPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 12f
+        }
+
+        var pageNumber = 1
+        var pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+        var page = pdfDocument.startPage(pageInfo)
+        var canvas = page.canvas
+
+        var y = 60f
+        val margin = 50f
+        val lineSpacing = 18f
+
+        // Title
+        canvas.drawText(novel.title, margin, y, titlePaint)
+        y += 30f
+        canvas.drawText(novel.subtitle, margin, y, headerPaint)
+        y += 40f
+
+        for (ch in chapters) {
+            if (y > pageHeight - 100f) {
+                pdfDocument.finishPage(page)
+                pageNumber++
+                pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                page = pdfDocument.startPage(pageInfo)
+                canvas = page.canvas
+                y = 60f
+            }
+
+            canvas.drawText("Capítulo ${ch.number}: ${ch.title}", margin, y, headerPaint)
+            y += 26f
+
+            val lines = ch.content.lines()
+            for (line in lines) {
+                if (line.isBlank()) {
+                    y += 10f
+                    continue
+                }
+                val words = line.split(" ")
+                var currentLine = ""
+                for (word in words) {
+                    if (bodyPaint.measureText("$currentLine $word") < pageWidth - (margin * 2)) {
+                        currentLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+                    } else {
+                        if (y > pageHeight - 60f) {
+                            pdfDocument.finishPage(page)
+                            pageNumber++
+                            pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                            page = pdfDocument.startPage(pageInfo)
+                            canvas = page.canvas
+                            y = 60f
+                        }
+                        canvas.drawText(currentLine, margin, y, bodyPaint)
+                        y += lineSpacing
+                        currentLine = word
+                    }
+                }
+                if (currentLine.isNotEmpty()) {
+                    if (y > pageHeight - 60f) {
+                        pdfDocument.finishPage(page)
+                        pageNumber++
+                        pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+                        page = pdfDocument.startPage(pageInfo)
+                        canvas = page.canvas
+                        y = 60f
+                    }
+                    canvas.drawText(currentLine, margin, y, bodyPaint)
+                    y += lineSpacing
+                }
+            }
+            y += 20f
+        }
+
+        pdfDocument.finishPage(page)
+        java.io.FileOutputStream(outputFile).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        pdfDocument.close()
+    }
+
+    private fun generateDocxExport(novel: Novel, chapters: List<Chapter>, outputFile: java.io.File) {
+        val documentXml = StringBuilder()
+        documentXml.append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n")
+        documentXml.append("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">\n")
+        documentXml.append("<w:body>\n")
+
+        documentXml.append("<w:p><w:r><w:rPr><w:b/><w:sz w:val=\"36\"/></w:rPr><w:t>")
+        documentXml.append(escapeXml(novel.title))
+        documentXml.append("</w:t></w:r></w:p>\n")
+
+        documentXml.append("<w:p><w:r><w:rPr><w:i/><w:sz w:val=\"24\"/></w:rPr><w:t>")
+        documentXml.append(escapeXml(novel.subtitle))
+        documentXml.append("</w:t></w:r></w:p>\n")
+
+        for (ch in chapters) {
+            documentXml.append("<w:p><w:r><w:rPr><w:b/><w:sz w:val=\"28\"/></w:rPr><w:t>")
+            documentXml.append("Capítulo ").append(ch.number).append(": ").append(escapeXml(ch.title))
+            documentXml.append("</w:t></w:r></w:p>\n")
+
+            val paragraphs = ch.content.split("\n")
+            for (p in paragraphs) {
+                if (p.isNotBlank()) {
+                    documentXml.append("<w:p><w:r><w:t>")
+                    documentXml.append(escapeXml(p))
+                    documentXml.append("</w:t></w:r></w:p>\n")
+                }
+            }
+        }
+
+        documentXml.append("</w:body></w:document>")
+
+        java.io.FileOutputStream(outputFile).use { fos ->
+            java.util.zip.ZipOutputStream(fos).use { zos ->
+                // [Content_Types].xml
+                zos.putNextEntry(java.util.zip.ZipEntry("[Content_Types].xml"))
+                val contentTypes = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"
+                zos.write(contentTypes.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // _rels/.rels
+                zos.putNextEntry(java.util.zip.ZipEntry("_rels/.rels"))
+                val rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"
+                zos.write(rels.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // word/document.xml
+                zos.putNextEntry(java.util.zip.ZipEntry("word/document.xml"))
+                zos.write(documentXml.toString().toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+        }
+    }
+
+    private fun escapeXml(text: String): String {
+        return text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
     }
 
 
