@@ -16,10 +16,12 @@ data class Novel(
     val totalChapters: Int,
     val progressPercent: Int,
     val coverDrawableName: String,
+    val customCoverPath: String? = null,
     val status: String,
     val lastEdited: String,
     val isFeatured: Boolean,
-    val synopsis: String
+    val synopsis: String,
+    val isTutorial: Boolean = false
 )
 
 @Entity(tableName = "chapters")

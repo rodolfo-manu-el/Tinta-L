@@ -157,25 +157,45 @@ fun ObraScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Mini Cover
+                        // SAF Cover Picker Launcher
+                        val coverPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                            contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                        ) { uri: android.net.Uri? ->
+                            if (uri != null) {
+                                viewModel.updateNovelCover(currentNovel.id, uri, context)
+                            }
+                        }
+
+                        // Mini Cover with SAF Picker Click
+                        val customCoverFile = currentNovel.customCoverPath?.let { java.io.File(it) }
                         Box(
                             modifier = Modifier
                                 .width(82.dp)
                                 .height(122.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .clickable { coverPickerLauncher.launch("image/*") }
                         ) {
-                            val coverRes = when (currentNovel.coverDrawableName) {
-                                "cover_bruma" -> R.drawable.cover_bruma
-                                "cover_helio" -> R.drawable.cover_helio
-                                else -> R.drawable.cover_silencio
+                            if (customCoverFile != null && customCoverFile.exists()) {
+                                coil.compose.AsyncImage(
+                                    model = customCoverFile,
+                                    contentDescription = "Portada",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                val coverRes = when (currentNovel.coverDrawableName) {
+                                    "cover_bruma" -> R.drawable.cover_bruma
+                                    "cover_helio" -> R.drawable.cover_helio
+                                    else -> R.drawable.cover_silencio
+                                }
+                                Image(
+                                    painter = painterResource(id = coverRes),
+                                    contentDescription = "Portada",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
-                            Image(
-                                painter = painterResource(id = coverRes),
-                                contentDescription = "Portada",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
