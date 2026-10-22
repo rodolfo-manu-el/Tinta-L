@@ -640,15 +640,20 @@ private fun InteractiveCorkboard(
                     )
                 }
 
+                val char1 = characters.getOrNull(0)
+                val char2 = characters.getOrNull(1)
+                val char3 = characters.getOrNull(2)
+                val char4 = characters.getOrNull(3)
+
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(start = 24.dp, top = 36.dp)
                 ) {
                     CorkCard(
-                        name = if (characters.isNotEmpty()) characters[0].name else "Kaelen Vance",
-                        role = if (characters.isNotEmpty()) characters[0].roleTag else "Protagonista",
-                        tag = "Tejedora",
+                        name = char1?.name ?: "Aria Thorne",
+                        role = char1?.roleTag ?: "Protagonista",
+                        tag = char1?.epithet ?: "Escriba",
                         pinColor = Color(0xFFFB7185)
                     )
                 }
@@ -659,9 +664,9 @@ private fun InteractiveCorkboard(
                         .padding(end = 24.dp, top = 48.dp)
                 ) {
                     CorkCard(
-                        name = if (characters.size > 1) characters[1].name else "Ren Vesper",
-                        role = if (characters.size > 1) characters[1].roleTag else "Deuteragonista",
-                        tag = "Piloto",
+                        name = char2?.name ?: "Mateo Corvus",
+                        role = char2?.roleTag ?: "Deuteragonista",
+                        tag = char2?.epithet ?: "Cartógrafo",
                         pinColor = Color(0xFF34D399)
                     )
                 }
@@ -672,10 +677,10 @@ private fun InteractiveCorkboard(
                         .padding(start = 32.dp, bottom = 48.dp)
                 ) {
                     CorkCard(
-                        name = if (characters.size > 2) characters[2].name else "S.O.L.I.S.",
-                        role = if (characters.size > 2) characters[2].roleTag else "IA Rebelde",
-                        tag = "Memoria",
-                        pinColor = Color(0xFF38BDF8)
+                        name = char3?.name ?: "Lord Valerius",
+                        role = char3?.roleTag ?: "Antagonista",
+                        tag = char3?.epithet ?: "Inquisidor",
+                        pinColor = Color(0xFFEF4444)
                     )
                 }
 
@@ -685,20 +690,102 @@ private fun InteractiveCorkboard(
                         .padding(end = 28.dp, bottom = 36.dp)
                 ) {
                     CorkCard(
-                        name = if (characters.size > 3) characters[3].name else "Capitana Vane",
-                        role = if (characters.size > 3) characters[3].roleTag else "Corsaria",
-                        tag = "Espuela",
-                        pinColor = Color(0xFFEF4444)
+                        name = char4?.name ?: "Célere",
+                        role = char4?.roleTag ?: "Compañera Alada",
+                        tag = char4?.epithet ?: "Mensajero",
+                        pinColor = Color(0xFF38BDF8)
                     )
                 }
             }
         }
 
+        // Listado de hilos y relaciones narrativas del corcho
+        if (relationships.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Hilos del Mapa de Relaciones",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
+
+                relationships.forEach { rel ->
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("relationship_card_${rel.id}")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = rel.fromCharacterName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.secondary
+                                    )
+                                    Text(
+                                        text = rel.toCharacterName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = rel.type,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                            if (rel.description.isNotBlank()) {
+                                Text(
+                                    text = rel.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (showAddRelDialog) {
-            var fromName by remember { mutableStateOf(if (characters.isNotEmpty()) characters[0].name else "Kaelen") }
-            var toName by remember { mutableStateOf(if (characters.size > 1) characters[1].name else "Ren") }
+            var fromName by remember { mutableStateOf(characters.getOrNull(0)?.name ?: "Aria Thorne") }
+            var toName by remember { mutableStateOf(characters.getOrNull(1)?.name ?: "Mateo Corvus") }
             var relType by remember { mutableStateOf("Alianza Estratégica") }
-            var description by remember { mutableStateOf("Pacto de no agresión y lealtad mutua en combate.") }
+            var description by remember { mutableStateOf("Pacto de lealtad mutua en la consecución del manuscrito.") }
 
             AlertDialog(
                 onDismissRequest = { showAddRelDialog = false },

@@ -268,17 +268,18 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Detección de primera ejecución mediante SharedPreferences y creación automática
-     * de la historia tutorial "Bienvenido a Tinta" con bandera especial (`isTutorial = true`).
+     * Detección y creación automática de la historia tutorial "Bienvenido a Tinta",
+     * junto con sus capítulos de guía, fichas de personajes completas y red del mapa en corcho.
      */
     private fun checkAndCreateTutorialOnFirstRun() {
+        val tutorialId = "bienvenido-a-tinta"
         val context = getApplication<Application>().applicationContext
         val prefs = context.getSharedPreferences("tinta_prefs", Context.MODE_PRIVATE)
         val isFirstRun = prefs.getBoolean("is_first_run", true)
 
-        if (isFirstRun) {
-            viewModelScope.launch {
-                val tutorialId = "bienvenido-a-tinta"
+        viewModelScope.launch {
+            val existingNovel = repository.getNovelById(tutorialId).firstOrNull()
+            if (isFirstRun || existingNovel == null) {
                 val tutorialNovel = Novel(
                     id = tutorialId,
                     title = "Bienvenido a Tinta",
@@ -294,7 +295,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     status = "Tutorial",
                     lastEdited = "Ahora",
                     isFeatured = true,
-                    synopsis = "¡Hola escritor! Esta historia interactiva te guiara paso a paso por todas las herramientas de Tinta & Trama.",
+                    synopsis = "¡Hola escritor! Esta historia interactiva te guiará paso a paso por todas las herramientas de Tinta & Trama.",
                     isTutorial = true
                 )
 
@@ -316,7 +317,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     number = 2,
                     title = "Carátulas y Exportación SAF",
                     actName = "Capítulo 2",
-                    content = "# Gestión de Obras y Archivos\n\n### 🎨 Personaliza tus Portadas\nEn la pantalla **Obra**, simplemente toca la imagen de la portada para abrir la galería de tu teléfono con el Storage Access Framework (SAF), seleccionar tu imagen favorita y guardarla de forma segura.\n\n### 📄 Importación y Exportación\n- Puedes importar cualquier documento `.md` o `.docx` directamente desde tu dispositivo.\n- Al terminar tu historia, exspórtala en formato **PDF**, **Word (.docx)** o **Markdown (.md)** de forma nativa.\n\n¡Disfruta escribiendo tu próximo gran manuscrito!",
+                    content = "# Gestión de Obras y Archivos\n\n### 🎨 Personaliza tus Portadas\nEn la pantalla **Obra**, simplemente toca la imagen de la portada para abrir la galería de tu teléfono con el Storage Access Framework (SAF), seleccionar tu imagen favorita y guardarla de forma segura.\n\n### 📄 Importación y Exportación\n- Puedes importar cualquier documento `.md` o `.docx` directamente desde tu dispositivo.\n- Al terminar tu historia, expórtala en formato **PDF**, **Word (.docx)** o **Markdown (.md)** de forma nativa.\n\n¡Disfruta escribiendo tu próximo gran manuscrito!",
                     wordCount = 110,
                     isFinished = true,
                     lastSynced = "Ahora"
@@ -325,11 +326,140 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 repository.insertNovel(tutorialNovel)
                 repository.insertChapter(cap1)
                 repository.insertChapter(cap2)
-
                 prefs.edit().putBoolean("is_first_run", false).apply()
+            }
+
+            // Verificar si el tutorial ya tiene fichas de personajes y vínculos de corcho.
+            // Si están vacíos, se pueblan automáticamente para que la pestaña Personajes y Mapa en Corcho estén activos.
+            val existingChars = repository.getCharactersForNovel(tutorialId).firstOrNull() ?: emptyList()
+            if (existingChars.isEmpty()) {
+                seedTutorialCharactersAndRelationships(tutorialId)
+            }
+
+            if (isFirstRun) {
                 selectNovel(tutorialId)
             }
         }
+    }
+
+    /**
+     * Inserta las fichas de personajes del tutorial y sus relaciones en el mapa de corcho.
+     */
+    private suspend fun seedTutorialCharactersAndRelationships(tutorialId: String) {
+        val char1 = CharacterEntity(
+            id = "${tutorialId}_char_1",
+            novelId = tutorialId,
+            name = "Aria Thorne",
+            roleTag = "Protagonista",
+            epithet = "Escriba del Viento",
+            bio = "Joven calígrafa del Gremio de Creadores. Busca descifrar los manuscritos olvidados para revitalizar la inspiración en el reino de las palabras.",
+            age = "24 años",
+            species = "Humana / Escriba",
+            plotRoleOrMotivation = "Proteger el Gran Manuscrito y enseñar el arte de narrar a las nuevas generaciones.",
+            traits = "Observadora, tenaz, elocuente y soñadora.",
+            specialAbility = "Lectura veloz y memoria mimética de textos antiguos.",
+            crucialLink = "Conocedora del secreto de la Tinta Primigenia.",
+            faction = "Gremio de Escribas",
+            avatarDrawableName = "avatar_kaelen",
+            isProtagonist = true,
+            isDeuteragonist = false
+        )
+
+        val char2 = CharacterEntity(
+            id = "${tutorialId}_char_2",
+            novelId = tutorialId,
+            name = "Mateo Corvus",
+            roleTag = "Deuteragonista",
+            epithet = "El Cartógrafo Rebelde",
+            bio = "Explorador y dibujante de mapas narrativos. Conoce cada rincón de la trama y guía a los personajes a través de giros argumentales insospechados.",
+            age = "27 años",
+            species = "Humano / Navegante",
+            plotRoleOrMotivation = "Trazar el mapa definitivo que una todos los mundos de ficción.",
+            traits = "Audaz, ingenioso, leal y pragmático.",
+            specialAbility = "Orientación intuitiva en laberintos y líneas temporales.",
+            crucialLink = "Guarda el único mapa que revela el taller del autor.",
+            faction = "Cartógrafos Libres",
+            avatarDrawableName = "avatar_ren",
+            isProtagonist = false,
+            isDeuteragonist = true
+        )
+
+        val char3 = CharacterEntity(
+            id = "${tutorialId}_char_3",
+            novelId = tutorialId,
+            name = "Lord Valerius",
+            roleTag = "Antagonista",
+            epithet = "El Censor del Olvido",
+            bio = "Antiguo archivero que cree que los borradores imperfectos deben ser purgados con fuego. Intenta sellar la imaginación para imponer un orden rígido.",
+            age = "52 años",
+            species = "Humano / Inquisidor",
+            plotRoleOrMotivation = "Eliminar las historias no canónicas y censurar las voces discordantes.",
+            traits = "Meticuloso, severo, persuasivo y analítico.",
+            specialAbility = "Retórica paralizante y acceso a los archivos censurados.",
+            crucialLink = "Fue el antiguo maestro de Aria antes de su deserción.",
+            faction = "Inquisición Silenciosa",
+            avatarDrawableName = "cover_bruma",
+            isProtagonist = false,
+            isDeuteragonist = false
+        )
+
+        val char4 = CharacterEntity(
+            id = "${tutorialId}_char_4",
+            novelId = tutorialId,
+            name = "Célere",
+            roleTag = "Compañera Alada",
+            epithet = "Halcón de Papel",
+            bio = "Criatura mística forjada en papiro encantado. Lleva mensajes urgentes entre capítulos y avisa de incoherencias en la continuidad del relato.",
+            age = "Atemporal",
+            species = "Constructo de Papel & Tinta",
+            plotRoleOrMotivation = "Custodiar las cartas de navegación y advertir a Aria de los peligros.",
+            traits = "Veloz, vigilante y fiel hasta el último párrafo.",
+            specialAbility = "Vuelo transnarrativo entre escenas y notas al margen.",
+            crucialLink = "Vínculo anímico con la pluma de Aria.",
+            faction = "Compañeros del Atelier",
+            avatarDrawableName = "cover_helio",
+            isProtagonist = false,
+            isDeuteragonist = false
+        )
+
+        repository.insertCharacter(char1)
+        repository.insertCharacter(char2)
+        repository.insertCharacter(char3)
+        repository.insertCharacter(char4)
+
+        val rel1 = Relationship(
+            novelId = tutorialId,
+            fromCharacterName = "Aria Thorne",
+            toCharacterName = "Mateo Corvus",
+            type = "Alianza Estratégica",
+            description = "Confianza mutua y compañerismo en la búsqueda del manuscrito sagrado."
+        )
+        val rel2 = Relationship(
+            novelId = tutorialId,
+            fromCharacterName = "Lord Valerius",
+            toCharacterName = "Aria Thorne",
+            type = "Persecución & Rivalidad",
+            description = "Valerius persigue los cuadernos de Aria para borrar su historia y sellar su pluma."
+        )
+        val rel3 = Relationship(
+            novelId = tutorialId,
+            fromCharacterName = "Mateo Corvus",
+            toCharacterName = "Lord Valerius",
+            type = "Antigua Deuda",
+            description = "Valerius encarceló a los cartógrafos rebeldes; Mateo busca liberar a sus hermanos de tinta."
+        )
+        val rel4 = Relationship(
+            novelId = tutorialId,
+            fromCharacterName = "Aria Thorne",
+            toCharacterName = "Célere",
+            type = "Vínculo Fiel",
+            description = "Célere entrega notas secretas al margen y detecta emboscadas narrativas antes de que ocurran."
+        )
+
+        repository.insertRelationship(rel1)
+        repository.insertRelationship(rel2)
+        repository.insertRelationship(rel3)
+        repository.insertRelationship(rel4)
     }
 
     fun selectTab(tab: TintaTab) {

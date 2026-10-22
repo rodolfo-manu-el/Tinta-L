@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -100,8 +99,7 @@ fun BibliotecaScreen(
 
         // Stat Pills Row
         StatPillsRow(
-            totalNovels = allNovels.size,
-            totalWords = allNovels.sumOf { it.wordCount }
+            totalNovels = allNovels.size
         )
 
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -113,22 +111,12 @@ fun BibliotecaScreen(
             }
         }
 
-        // Search & Filter
+        // Search & Actions
         SearchAndFilterBar(
             searchQuery = searchQuery,
-            selectedFilter = selectedFilter,
             onSearchChange = { viewModel.onSearchQueryChanged(it) },
             onClearSearch = { viewModel.clearSearchQuery() },
             onImportClick = { documentImportLauncher.launch("*/*") },
-            onFilterClick = {
-                val nextFilter = when (selectedFilter) {
-                    FilterOption.ALL -> FilterOption.IN_PROGRESS
-                    FilterOption.IN_PROGRESS -> FilterOption.COMPLETED
-                    FilterOption.COMPLETED -> FilterOption.ALL
-                }
-                viewModel.onFilterSelected(nextFilter)
-                viewModel.showToast("Filtro: ${nextFilter.label}")
-            },
             onNewStoryClick = { viewModel.openCreateModal("novel") }
         )
 
@@ -310,7 +298,7 @@ private fun SectionGreeting(hasNovels: Boolean, onStreakClick: () -> Unit) {
 }
 
 @Composable
-private fun StatPillsRow(totalNovels: Int, totalWords: Int) {
+private fun StatPillsRow(totalNovels: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -320,12 +308,7 @@ private fun StatPillsRow(totalNovels: Int, totalWords: Int) {
         StatPill(
             icon = Icons.Default.MenuBook,
             iconTint = MaterialTheme.colorScheme.primary,
-            label = "$totalNovels ${if (totalNovels == 1) "historia" else "historias"}"
-        )
-        StatPill(
-            icon = Icons.Default.Create,
-            iconTint = MaterialTheme.colorScheme.secondary,
-            label = "${String.format("%,d", totalWords).replace(',', '.')} palabras totales"
+            label = "$totalNovels ${if (totalNovels == 1) "historia en biblioteca" else "historias en biblioteca"}"
         )
     }
 }
@@ -364,11 +347,9 @@ private fun StatPill(
 @Composable
 private fun SearchAndFilterBar(
     searchQuery: String,
-    selectedFilter: FilterOption,
     onSearchChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onImportClick: () -> Unit,
-    onFilterClick: () -> Unit,
     onNewStoryClick: () -> Unit
 ) {
     Row(
@@ -439,35 +420,11 @@ private fun SearchAndFilterBar(
             )
         }
 
-        IconButton(
-            onClick = onFilterClick,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    if (selectedFilter != FilterOption.ALL)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-                .testTag("filter_button")
-        ) {
-            Icon(
-                imageVector = Icons.Default.Tune,
-                contentDescription = "Filtrar por estado",
-                tint = if (selectedFilter != FilterOption.ALL)
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
         Button(
             onClick = onNewStoryClick,
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ),
             modifier = Modifier
@@ -480,7 +437,7 @@ private fun SearchAndFilterBar(
                 modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Nueva", style = MaterialTheme.typography.labelMedium)
+            Text("Nueva", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -669,24 +626,6 @@ private fun SectionFeaturedNovel(
                         )
 
                         Spacer(modifier = Modifier.height(2.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "${String.format("%,d", novel.wordCount).replace(',', '.')} palabras",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
                     }
                 }
 
@@ -884,11 +823,6 @@ private fun SectionSecondaryNovels(
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
-                            Text(
-                                text = "${String.format("%,d", novel.wordCount).replace(',', '.')} palabras",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
 
                         Text(

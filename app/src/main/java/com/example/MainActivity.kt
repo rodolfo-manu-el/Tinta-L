@@ -84,14 +84,10 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     floatingActionButton = {
-                        if (currentTab != TintaTab.ESCRIBIR) {
+                        if (currentTab == TintaTab.PERSONAJES) {
                             FloatingActionButton(
                                 onClick = {
-                                    val targetCreate = when (currentTab) {
-                                        TintaTab.PERSONAJES -> "character"
-                                        else -> "novel"
-                                    }
-                                    viewModel.openCreateModal(targetCreate)
+                                    viewModel.openCreateModal("character")
                                 },
                                 shape = CircleShape,
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -104,7 +100,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.DriveFileRenameOutline,
-                                    contentDescription = "Crear nuevo elemento",
+                                    contentDescription = "Crear nuevo personaje",
                                     modifier = Modifier.size(26.dp)
                                 )
                             }

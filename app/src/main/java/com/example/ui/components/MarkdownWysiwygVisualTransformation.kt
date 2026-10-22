@@ -49,8 +49,8 @@ class MarkdownWysiwygVisualTransformation(
             transIndex++
         }
 
-        val headerColor = if (isDarkTheme) Color(0xFFFF8A65) else Color(0xFFC25327)
-        val quoteColor = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF546E7A)
+        val headerColor = if (isDarkTheme) Color(0xFFFF8A65) else Color(0xFFBC4B1E)
+        val quoteColor = if (isDarkTheme) Color(0xFF94A3B8) else Color(0xFF4A4B4F)
 
         val boldRegex = Regex("\\*\\*([^*]+)\\*\\*")
         val italicRegex = Regex("(?<!\\*)\\*([^*]+)\\*(?!\\*)")
@@ -64,7 +64,20 @@ class MarkdownWysiwygVisualTransformation(
                 var isHeader = false
                 var isQuote = false
 
-                if (lineContent.startsWith("# ")) {
+                if (lineContent.startsWith("### ")) {
+                    isHeader = true
+                    skipOrigChar()
+                    skipOrigChar()
+                    skipOrigChar()
+                    skipOrigChar()
+                    lineContent = lineContent.substring(4)
+                } else if (lineContent.startsWith("## ")) {
+                    isHeader = true
+                    skipOrigChar()
+                    skipOrigChar()
+                    skipOrigChar()
+                    lineContent = lineContent.substring(3)
+                } else if (lineContent.startsWith("# ")) {
                     isHeader = true
                     skipOrigChar()
                     skipOrigChar()

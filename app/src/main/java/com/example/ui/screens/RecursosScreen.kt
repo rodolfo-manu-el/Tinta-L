@@ -58,7 +58,6 @@ fun RecursosScreen(
 ) {
     val codexEntries by viewModel.allCodexEntries.collectAsStateWithLifecycle()
     val novels by viewModel.allNovels.collectAsStateWithLifecycle()
-    val totalWords = novels.sumOf { it.wordCount }
 
     Column(
         modifier = modifier
@@ -125,27 +124,16 @@ fun RecursosScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.surfaceContainer,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text("PALABRAS TOTALES", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("${String.format("%,d", totalWords).replace(',', '.')}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                            Text("en biblioteca", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text("HISTORIAS", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("${novels.size}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
+                            Text("${novels.size}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
                             Text(if (novels.size == 1) "historia activa" else "historias activas", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -154,10 +142,10 @@ fun RecursosScreen(
                         color = MaterialTheme.colorScheme.surfaceContainer,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text("MODO ESCRITURA", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Offline", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
-                            Text("100% privado", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Offline", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.secondary)
+                            Text("100% privado y seguro", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

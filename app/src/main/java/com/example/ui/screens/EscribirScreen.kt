@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,7 +120,7 @@ fun EscribirScreen(
     val wordsWrittenInSession by viewModel.wordsWrittenInSession.collectAsStateWithLifecycle()
     val isDarkThemeState by viewModel.isDarkTheme.collectAsStateWithLifecycle()
 
-    val isDark = isDarkThemeState || isSystemInDarkTheme()
+    val isDark = isDarkThemeState
 
     var tfv by remember(activeChapterId) {
         mutableStateOf(TextFieldValue(text = chapterContent, selection = TextRange(chapterContent.length)))
@@ -144,8 +143,8 @@ fun EscribirScreen(
     val hasPreviousChapter = currentChapterIndex > 0
     val hasNextChapter = currentChapterIndex >= 0 && currentChapterIndex < activeChapters.size - 1
 
-    val textPrimary = if (isDark) Color(0xFFE2E8F0) else Color(0xFF28221E)
-    val textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF8D7B68)
+    val textPrimary = if (isDark) Color(0xFFF1EDE6) else Color(0xFF1C1917)
+    val textMuted = if (isDark) Color(0xFFA8A29E) else Color(0xFF57534E)
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(
@@ -405,11 +404,6 @@ fun EscribirScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = textPrimary
                             )
-                            Text(
-                                text = "· $wordsWrittenInSession palabras hoy",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = textMuted
-                            )
                             IconButton(
                                 onClick = { viewModel.toggleTimer() },
                                 modifier = Modifier.size(20.dp)
@@ -466,16 +460,9 @@ fun EscribirScreen(
                 // 3. Manuscript Paper Sheet
                 val canvasBg = when (paperTexture) {
                     "parchment" -> if (isDark) TintaCreamDark else TintaCreamLight
-                    "lined" -> if (isDark) TintaPaperLinedDark else TintaPaperLinedLight
-                    "grid" -> if (isDark) TintaPaperGridDark else TintaPaperGridLight
-                    else -> MaterialTheme.colorScheme.surfaceContainerLow
-                }
-
-                val lineOverlayColor = when (paperTexture) {
-                    "parchment" -> if (isDark) Color(0xFF423B32) else Color(0xFFD9C3A3)
-                    "lined" -> if (isDark) Color(0xFF475569) else Color(0xFF94A3B8)
-                    "grid" -> if (isDark) Color(0xFF475569) else Color(0xFFCBD5E1)
-                    else -> Color.Transparent
+                    "lined" -> if (isDark) TintaPaperLinedDark else Color(0xFFFBFBFA)
+                    "grid" -> if (isDark) TintaPaperGridDark else Color(0xFFF8FAFC)
+                    else -> if (isDark) MaterialTheme.colorScheme.surfaceContainerLow else Color(0xFFFFFFFF)
                 }
 
                 Surface(
@@ -491,23 +478,37 @@ fun EscribirScreen(
                         // Pattern overlay for Lined / Grid
                         if (paperTexture == "lined" || paperTexture == "grid") {
                             Canvas(modifier = Modifier.matchParentSize()) {
-                                val strokeWidth = 1f
+                                val strokeWidth = 1.2.dp.toPx()
                                 val step = 28.dp.toPx()
                                 var y = step
                                 while (y < size.height) {
                                     drawLine(
-                                        color = lineOverlayColor.copy(alpha = 0.35f),
+                                        color = if (paperTexture == "lined") {
+                                            if (isDark) Color(0xFF64748B).copy(alpha = 0.5f) else Color(0xFF60A5FA).copy(alpha = 0.65f)
+                                        } else {
+                                            if (isDark) Color(0xFF475569).copy(alpha = 0.4f) else Color(0xFF94A3B8).copy(alpha = 0.5f)
+                                        },
                                         start = Offset(0f, y),
                                         end = Offset(size.width, y),
                                         strokeWidth = strokeWidth
                                     )
                                     y += step
                                 }
+                                if (paperTexture == "lined") {
+                                    // Classic ruled notebook vertical red margin line
+                                    val marginX = 26.dp.toPx()
+                                    drawLine(
+                                        color = if (isDark) Color(0xFFEF4444).copy(alpha = 0.35f) else Color(0xFFF87171).copy(alpha = 0.7f),
+                                        start = Offset(marginX, 0f),
+                                        end = Offset(marginX, size.height),
+                                        strokeWidth = 1.2.dp.toPx()
+                                    )
+                                }
                                 if (paperTexture == "grid") {
                                     var x = step
                                     while (x < size.width) {
                                         drawLine(
-                                            color = lineOverlayColor.copy(alpha = 0.35f),
+                                            color = if (isDark) Color(0xFF475569).copy(alpha = 0.4f) else Color(0xFF94A3B8).copy(alpha = 0.5f),
                                             start = Offset(x, 0f),
                                             end = Offset(x, size.height),
                                             strokeWidth = strokeWidth
