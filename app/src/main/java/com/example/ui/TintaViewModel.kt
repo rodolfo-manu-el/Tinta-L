@@ -201,6 +201,12 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     private val _isChapterFinished = MutableStateFlow(false)
     val isChapterFinished: StateFlow<Boolean> = _isChapterFinished.asStateFlow()
 
+    private val _chapterStatus = MutableStateFlow("Borrador") // "Borrador", "En Revisión", "Terminado"
+    val chapterStatus: StateFlow<String> = _chapterStatus.asStateFlow()
+
+    private val _isSavingContent = MutableStateFlow(false)
+    val isSavingContent: StateFlow<Boolean> = _isSavingContent.asStateFlow()
+
     private val _paperTexture = MutableStateFlow("plain")
     val paperTexture: StateFlow<String> = _paperTexture.asStateFlow()
 
@@ -213,6 +219,9 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     // Pomodoro / Writing Session Timer State
     private val _isTimerRunning = MutableStateFlow(false)
     val isTimerRunning: StateFlow<Boolean> = _isTimerRunning.asStateFlow()
+
+    private val _timerInitialMinutes = MutableStateFlow(25)
+    val timerInitialMinutes: StateFlow<Int> = _timerInitialMinutes.asStateFlow()
 
     private val _timerSeconds = MutableStateFlow(25 * 60) // Default 25 minutes
     val timerSeconds: StateFlow<Int> = _timerSeconds.asStateFlow()
@@ -531,6 +540,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 _chapterContent.value = it.content
                 _chapterWordCount.value = it.wordCount
                 _isChapterFinished.value = it.isFinished
+                _chapterStatus.value = if (it.isFinished) "Terminado" else "Borrador"
             }
         }
     }
@@ -592,7 +602,10 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         val novelId = _selectedNovelId.value ?: _activeNovelId.value
         if (chapterId.isNotBlank() && novelId.isNotBlank()) {
             viewModelScope.launch {
+                _isSavingContent.value = true
                 repository.saveChapterContent(chapterId, newContent, words, novelId)
+                delay(300L) // Visual clarity for saving indicator
+                _isSavingContent.value = false
             }
         }
     }
@@ -701,11 +714,30 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         timerJob?.cancel()
     }
 
-    fun resetTimer(minutes: Int = 25) {
+    fun setTimerDuration(minutes: Int) {
+        val validMinutes = minutes.coerceIn(1, 180)
+        _timerInitialMinutes.value = validMinutes
+        resetTimer(validMinutes)
+    }
+
+    fun resetTimer(minutes: Int = _timerInitialMinutes.value) {
         pauseTimer()
         _timerSeconds.value = minutes * 60
         initialSessionWords = _chapterWordCount.value
         _wordsWrittenInSession.value = 0
+    }
+
+    fun setChapterStatus(status: String) {
+        _chapterStatus.value = status
+        val isDone = (status == "Terminado")
+        _isChapterFinished.value = isDone
+        val chapterId = _activeChapterId.value
+        if (chapterId.isNotBlank()) {
+            viewModelScope.launch {
+                repository.toggleChapterStatus(chapterId, isDone)
+                showToast("Estado actualizado a $status")
+            }
+        }
     }
 
     fun toggleChapterFinished() {
@@ -713,6 +745,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         if (chapterId.isBlank()) return
         val newState = !_isChapterFinished.value
         _isChapterFinished.value = newState
+        _chapterStatus.value = if (newState) "Terminado" else "Borrador"
         viewModelScope.launch {
             repository.toggleChapterStatus(chapterId, newState)
             showToast(if (newState) "✓ Capítulo marcado como Terminado" else "Borrador Vivo reanudado")
