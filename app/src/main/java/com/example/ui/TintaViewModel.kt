@@ -579,6 +579,9 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val targetChapter = if (chapterId.isNotBlank()) {
                 repository.getChapterById(chapterId).firstOrNull()
+            } else if (_activeChapterId.value.isNotBlank()) {
+                val current = repository.getChapterById(_activeChapterId.value).firstOrNull()
+                if (current != null && current.novelId == novelId) current else repository.getChaptersForNovel(novelId).firstOrNull()?.firstOrNull()
             } else {
                 repository.getChaptersForNovel(novelId).firstOrNull()?.firstOrNull()
             }
@@ -906,8 +909,8 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Actualiza la carátula o portada personalizada de la historia seleccionada.
-     * Copia la imagen a través de SAF/URI al almacenamiento privado interno de la app
-     * y guarda la ruta del archivo local en la base de datos para garantizar persistencia con Scoped Storage.
+     * Escala y recorta con formato estándar para libros (proporción 2:3) y
+     * guarda la ruta del archivo local en la base de datos para garantizar persistencia con Scoped Storage.
      */
     fun updateNovelCover(novelId: String, uri: Uri, context: Context) {
         viewModelScope.launch {
@@ -920,9 +923,9 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     val bitmap = android.graphics.BitmapFactory.decodeStream(input)
                     if (bitmap != null) {
-                        // Center-crop y escalado a proporciones de carátula editorial (3:4)
+                        // Proporción editorial estándar de libros: 2:3 (600 x 900 px)
                         val targetWidth = 600
-                        val targetHeight = 800
+                        val targetHeight = 900
 
                         val srcWidth = bitmap.width
                         val srcHeight = bitmap.height
@@ -955,7 +958,7 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                         if (novel != null) {
                             val updatedNovel = novel.copy(customCoverPath = destFile.absolutePath)
                             repository.insertNovel(updatedNovel)
-                            showToast("Portada de la historia actualizada")
+                            showToast("Portada añadida en formato estándar (2:3)")
                         }
                     } else {
                         showToast("No se pudo procesar el formato de la imagen")
@@ -964,6 +967,72 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 showToast("Error al guardar portada: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Alterna el estado de leído/pendiente de una historia.
+     * Las historias leídas se desplazan a segundo plano / debajo de las no leídas.
+     */
+    fun toggleNovelRead(novelId: String) {
+        viewModelScope.launch {
+            val novel = repository.getNovelById(novelId).firstOrNull() ?: return@launch
+            val newReadState = !novel.isRead
+            val updatedNovel = novel.copy(isRead = newReadState)
+            repository.insertNovel(updatedNovel)
+            if (newReadState) {
+                showToast("\"${novel.title}\" marcada como leída (en segundo plano)")
+            } else {
+                showToast("\"${novel.title}\" marcada como pendiente de lectura")
+            }
+        }
+    }
+
+    /**
+     * Actualiza el nombre, categoría (género), subtítulo y sinopsis de una historia.
+     */
+    fun updateNovelDetails(novelId: String, title: String, genre: String, subtitle: String, synopsis: String) {
+        viewModelScope.launch {
+            val novel = repository.getNovelById(novelId).firstOrNull() ?: return@launch
+            val updatedNovel = novel.copy(
+                title = title.trim().ifBlank { novel.title },
+                genre = genre.trim().ifBlank { novel.genre },
+                subtitle = subtitle.trim().ifBlank { novel.subtitle },
+                synopsis = synopsis.trim().ifBlank { novel.synopsis }
+            )
+            repository.insertNovel(updatedNovel)
+            showToast("Información de \"${updatedNovel.title}\" actualizada")
+        }
+    }
+
+    /**
+     * Elimina permanentemente una historia y todos sus capítulos, notas y personajes asociados.
+     */
+    fun deleteNovel(novelId: String) {
+        viewModelScope.launch {
+            val novel = repository.getNovelById(novelId).firstOrNull()
+            val novelTitle = novel?.title ?: "Historia"
+            repository.deleteNovel(novelId)
+
+            if (_selectedNovelId.value == novelId) {
+                val remaining = repository.allNovels.firstOrNull()?.filter { it.id != novelId } ?: emptyList()
+                if (remaining.isNotEmpty()) {
+                    val next = remaining.first()
+                    _selectedNovelId.value = next.id
+                    _activeNovelId.value = next.id
+                    val chapters = repository.getChaptersForNovel(next.id).firstOrNull() ?: emptyList()
+                    if (chapters.isNotEmpty()) {
+                        selectChapter(chapters.first().id)
+                    }
+                } else {
+                    _selectedNovelId.value = null
+                    _activeNovelId.value = ""
+                    _activeChapterId.value = ""
+                    _chapterContent.value = ""
+                    _chapterWordCount.value = 0
+                }
+            }
+            showToast("\"$novelTitle\" eliminada de la biblioteca")
         }
     }
 

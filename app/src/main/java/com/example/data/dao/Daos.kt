@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface NovelDao {
-    @Query("SELECT * FROM novels ORDER BY isFeatured DESC, title ASC")
+    @Query("SELECT * FROM novels ORDER BY isRead ASC, isFeatured DESC, title ASC")
     fun getAllNovels(): Flow<List<Novel>>
 
     @Query("SELECT * FROM novels WHERE id = :id LIMIT 1")
@@ -35,8 +35,20 @@ interface NovelDao {
     @Update
     suspend fun updateNovel(novel: Novel)
 
+    @Query("UPDATE novels SET isRead = :isRead WHERE id = :id")
+    suspend fun updateReadStatus(id: String, isRead: Boolean)
+
+    @Query("UPDATE novels SET customCoverPath = :coverPath WHERE id = :id")
+    suspend fun updateNovelCover(id: String, coverPath: String?)
+
+    @Query("UPDATE novels SET title = :title, genre = :genre, subtitle = :subtitle, synopsis = :synopsis WHERE id = :id")
+    suspend fun updateNovelDetails(id: String, title: String, genre: String, subtitle: String, synopsis: String)
+
     @Query("UPDATE novels SET wordCount = :wordCount, progressPercent = :progress WHERE id = :id")
     suspend fun updateNovelMetrics(id: String, wordCount: Int, progress: Int)
+
+    @Query("DELETE FROM novels WHERE id = :id")
+    suspend fun deleteNovelById(id: String)
 
     @Query("DELETE FROM novels")
     suspend fun deleteAllNovels()
@@ -65,6 +77,9 @@ interface ChapterDao {
     @Query("UPDATE chapters SET isFinished = :isFinished WHERE id = :id")
     suspend fun updateChapterStatus(id: String, isFinished: Boolean)
 
+    @Query("DELETE FROM chapters WHERE novelId = :novelId")
+    suspend fun deleteChaptersByNovel(novelId: String)
+
     @Query("DELETE FROM chapters")
     suspend fun deleteAllChapters()
 }
@@ -79,6 +94,9 @@ interface ChapterVersionDao {
 
     @Query("DELETE FROM chapter_versions WHERE chapterId = :chapterId")
     suspend fun deleteVersionsForChapter(chapterId: String)
+
+    @Query("DELETE FROM chapter_versions WHERE novelId = :novelId")
+    suspend fun deleteVersionsByNovel(novelId: String)
 
     @Query("DELETE FROM chapter_versions")
     suspend fun deleteAllVersions()
@@ -107,6 +125,9 @@ interface MarginNoteDao {
     @Query("DELETE FROM margin_notes WHERE id = :id")
     suspend fun deleteNoteById(id: Long)
 
+    @Query("DELETE FROM margin_notes WHERE novelId = :novelId")
+    suspend fun deleteNotesByNovel(novelId: String)
+
     @Query("DELETE FROM margin_notes")
     suspend fun deleteAllNotes()
 }
@@ -128,6 +149,9 @@ interface CharacterDao {
     @Delete
     suspend fun deleteCharacter(character: CharacterEntity)
 
+    @Query("DELETE FROM characters WHERE novelId = :novelId")
+    suspend fun deleteCharactersByNovel(novelId: String)
+
     @Query("DELETE FROM characters")
     suspend fun deleteAllCharacters()
 }
@@ -142,6 +166,9 @@ interface RelationshipDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRelationships(relationships: List<Relationship>)
+
+    @Query("DELETE FROM relationships WHERE novelId = :novelId")
+    suspend fun deleteRelationshipsByNovel(novelId: String)
 
     @Query("DELETE FROM relationships")
     suspend fun deleteAllRelationships()

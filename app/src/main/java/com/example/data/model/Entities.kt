@@ -21,7 +21,8 @@ data class Novel(
     val lastEdited: String,
     val isFeatured: Boolean,
     val synopsis: String,
-    val isTutorial: Boolean = false
+    val isTutorial: Boolean = false,
+    val isRead: Boolean = false
 )
 
 @Entity(tableName = "chapters")

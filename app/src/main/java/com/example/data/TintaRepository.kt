@@ -90,6 +90,27 @@ class TintaRepository(private val database: AppDatabase) {
         database.relationshipDao().insertRelationship(relationship)
     }
 
+    suspend fun toggleNovelRead(novelId: String, isRead: Boolean) {
+        database.novelDao().updateReadStatus(novelId, isRead)
+    }
+
+    suspend fun updateNovelCover(novelId: String, coverPath: String?) {
+        database.novelDao().updateNovelCover(novelId, coverPath)
+    }
+
+    suspend fun updateNovelInfo(novelId: String, title: String, genre: String, subtitle: String, synopsis: String) {
+        database.novelDao().updateNovelDetails(novelId, title, genre, subtitle, synopsis)
+    }
+
+    suspend fun deleteNovel(novelId: String) {
+        database.novelDao().deleteNovelById(novelId)
+        database.chapterDao().deleteChaptersByNovel(novelId)
+        database.chapterVersionDao().deleteVersionsByNovel(novelId)
+        database.marginNoteDao().deleteNotesByNovel(novelId)
+        database.characterDao().deleteCharactersByNovel(novelId)
+        database.relationshipDao().deleteRelationshipsByNovel(novelId)
+    }
+
     suspend fun clearAllData() {
         database.novelDao().deleteAllNovels()
         database.chapterDao().deleteAllChapters()

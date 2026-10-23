@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,20 +28,28 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DownloadForOffline
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -51,12 +63,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
@@ -81,8 +97,27 @@ fun BibliotecaScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
 
-    val featuredNovel = novels.firstOrNull { it.isFeatured } ?: novels.firstOrNull()
+    // Ordenar de tal forma que las historias no leídas aparezcan primero; las leídas van en segundo plano / abajo
+    val featuredNovel = novels.firstOrNull { !it.isRead && it.isFeatured }
+        ?: novels.firstOrNull { !it.isRead }
+        ?: novels.firstOrNull { it.isFeatured }
+        ?: novels.firstOrNull()
     val secondaryNovels = novels.filter { it.id != featuredNovel?.id }
+
+    var novelToEdit by remember { mutableStateOf<Novel?>(null) }
+    var novelToDelete by remember { mutableStateOf<Novel?>(null) }
+    var novelForCoverPicker by remember { mutableStateOf<Novel?>(null) }
+
+    val context = LocalContext.current
+    val coverPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        val targetNovel = novelForCoverPicker
+        if (uri != null && targetNovel != null) {
+            viewModel.updateNovelCover(targetNovel.id, uri, context)
+        }
+        novelForCoverPicker = null
+    }
 
     Column(
         modifier = modifier
@@ -102,10 +137,9 @@ fun BibliotecaScreen(
             totalNovels = allNovels.size
         )
 
-        val context = androidx.compose.ui.platform.LocalContext.current
-        val documentImportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-            contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-        ) { uri: android.net.Uri? ->
+        val documentImportLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
             if (uri != null) {
                 viewModel.importDocument(uri, context)
             }
@@ -215,7 +249,15 @@ fun BibliotecaScreen(
                         viewModel.selectNovel(novel.id)
                         viewModel.openWritingStudio()
                     },
-                    onNovelDetails = { viewModel.selectNovel(novel.id) }
+                    onToggleRead = { viewModel.toggleNovelRead(novel.id) },
+                    onPickCover = {
+                        novelForCoverPicker = novel
+                        coverPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onEdit = { novelToEdit = novel },
+                    onDelete = { novelToDelete = novel }
                 )
             }
 
@@ -224,7 +266,16 @@ fun BibliotecaScreen(
                 SectionSecondaryNovels(
                     novels = secondaryNovels,
                     onSelectNovel = { novelId -> viewModel.selectNovel(novelId) },
-                    onViewAll = { viewModel.showToast("Mostrando catálogo de ${novels.size} manuscritos") }
+                    onViewAll = { viewModel.showToast("Mostrando catálogo de ${novels.size} manuscritos") },
+                    onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
+                    onPickCover = { target ->
+                        novelForCoverPicker = target
+                        coverPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onEdit = { target -> novelToEdit = target },
+                    onDelete = { target -> novelToDelete = target }
                 )
             }
         }
@@ -235,6 +286,30 @@ fun BibliotecaScreen(
         )
 
         Spacer(modifier = Modifier.height(100.dp))
+    }
+
+    // Modal para editar nombre, categoría (género), subtítulo y sinopsis de la historia
+    novelToEdit?.let { novel ->
+        EditNovelDialog(
+            novel = novel,
+            onDismiss = { novelToEdit = null },
+            onSave = { title, genre, subtitle, synopsis ->
+                viewModel.updateNovelDetails(novel.id, title, genre, subtitle, synopsis)
+                novelToEdit = null
+            }
+        )
+    }
+
+    // Diálogo de confirmación para eliminar la historia
+    novelToDelete?.let { novel ->
+        DeleteNovelDialog(
+            novel = novel,
+            onDismiss = { novelToDelete = null },
+            onConfirm = {
+                viewModel.deleteNovel(novel.id)
+                novelToDelete = null
+            }
+        )
     }
 }
 
@@ -479,8 +554,13 @@ private fun FilterChipsRow(
 private fun SectionFeaturedNovel(
     novel: Novel,
     onContinueWriting: () -> Unit,
-    onNovelDetails: () -> Unit
+    onToggleRead: () -> Unit,
+    onPickCover: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -522,7 +602,7 @@ private fun SectionFeaturedNovel(
                     BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                     RoundedCornerShape(16.dp)
                 )
-                .clickable { onNovelDetails() }
+                .clickable { onContinueWriting() }
                 .testTag("featured_novel_card")
         ) {
             Column(
@@ -533,20 +613,36 @@ private fun SectionFeaturedNovel(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Book Cover
+                    val customCoverFile = novel.customCoverPath?.let { java.io.File(it) }
+
+                    // Portada del libro con formato estándar editorial 2:3 (86 x 129 dp)
                     Box(
                         modifier = Modifier
                             .width(86.dp)
-                            .height(128.dp)
+                            .height(129.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.cover_silencio),
-                            contentDescription = "Portada de ${novel.title}",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        if (customCoverFile != null && customCoverFile.exists()) {
+                            coil.compose.AsyncImage(
+                                model = customCoverFile,
+                                contentDescription = "Portada de ${novel.title}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val coverRes = when (novel.coverDrawableName) {
+                                "cover_bruma" -> R.drawable.cover_bruma
+                                "cover_helio" -> R.drawable.cover_helio
+                                else -> R.drawable.cover_silencio
+                            }
+                            Image(
+                                painter = painterResource(id = coverRes),
+                                contentDescription = "Portada de ${novel.title}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -557,13 +653,15 @@ private fun SectionFeaturedNovel(
                                 )
                         )
                         Text(
-                            text = "SPACE OPERA",
+                            text = novel.genre.uppercase(),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
                             color = MaterialTheme.colorScheme.secondary,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 4.dp)
+                                .padding(bottom = 4.dp, start = 2.dp, end = 2.dp)
                         )
                     }
 
@@ -576,6 +674,31 @@ private fun SectionFeaturedNovel(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (novel.isRead) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = "LEÍDO",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                             if (novel.isTutorial) {
                                 Surface(
                                     shape = CircleShape,
@@ -689,18 +812,30 @@ private fun SectionFeaturedNovel(
                         )
                     }
 
-                    IconButton(
-                        onClick = onNovelDetails,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .testTag("novel_more_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreHoriz,
-                            contentDescription = "Opciones",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .testTag("novel_more_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreHoriz,
+                                contentDescription = "Opciones de ${novel.title}",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        NovelOptionsMenu(
+                            novel = novel,
+                            expanded = menuExpanded,
+                            onDismiss = { menuExpanded = false },
+                            onToggleRead = onToggleRead,
+                            onPickCover = onPickCover,
+                            onEdit = onEdit,
+                            onDelete = onDelete
                         )
                     }
                 }
@@ -713,7 +848,11 @@ private fun SectionFeaturedNovel(
 private fun SectionSecondaryNovels(
     novels: List<Novel>,
     onSelectNovel: (String) -> Unit,
-    onViewAll: () -> Unit
+    onViewAll: () -> Unit,
+    onToggleRead: (Novel) -> Unit,
+    onPickCover: (Novel) -> Unit,
+    onEdit: (Novel) -> Unit,
+    onDelete: (Novel) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
@@ -729,7 +868,7 @@ private fun SectionSecondaryNovels(
                 letterSpacing = 1.2.sp
             )
             Text(
-                text = "Ver todo (${novels.size + 1})",
+                text = "Total (${novels.size})",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
@@ -738,9 +877,20 @@ private fun SectionSecondaryNovels(
         }
 
         novels.forEach { novel ->
+            var cardMenuExpanded by remember { mutableStateOf(false) }
+
             Card(
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (novel.isRead) {
+                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    }
+                ),
+                border = if (novel.isRead) {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                } else null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { onSelectNovel(novel.id) }
@@ -753,10 +903,11 @@ private fun SectionSecondaryNovels(
                 ) {
                     val customCoverFile = novel.customCoverPath?.let { java.io.File(it) }
 
+                    // Proporción estándar de libros (2:3 = 60dp x 90dp)
                     Box(
                         modifier = Modifier
-                            .width(58.dp)
-                            .height(86.dp)
+                            .width(60.dp)
+                            .height(90.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLowest)
                     ) {
@@ -808,9 +959,34 @@ private fun SectionSecondaryNovels(
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (novel.isRead) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = "LEÍDO",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
                             Surface(
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -864,24 +1040,325 @@ private fun SectionSecondaryNovels(
                         }
                     }
 
-                    IconButton(
-                        onClick = { onSelectNovel(novel.id) },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    // Acciones: Botón de opciones (•••) y Botón de abrir (>)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = "Abrir ${novel.title}",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Box {
+                            IconButton(
+                                onClick = { cardMenuExpanded = true },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .testTag("novel_more_button_${novel.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreHoriz,
+                                    contentDescription = "Opciones de ${novel.title}",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            NovelOptionsMenu(
+                                novel = novel,
+                                expanded = cardMenuExpanded,
+                                onDismiss = { cardMenuExpanded = false },
+                                onToggleRead = { onToggleRead(novel) },
+                                onPickCover = { onPickCover(novel) },
+                                onEdit = { onEdit(novel) },
+                                onDelete = { onDelete(novel) }
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onSelectNovel(novel.id) },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Abrir ${novel.title}",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * Menú contextual con las opciones de cada historia:
+ * 1. Marcar como leído / pendiente
+ * 2. Añadir / Cambiar portada con formato estándar de libro (2:3)
+ * 3. Editar nombre, categoría (género) e información
+ * 4. Eliminar historia
+ */
+@Composable
+private fun NovelOptionsMenu(
+    novel: Novel,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onToggleRead: () -> Unit,
+    onPickCover: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
+    ) {
+        DropdownMenuItem(
+            text = {
+                Text(
+                    text = if (novel.isRead) "Marcar como pendiente" else "Marcar como leído",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = if (novel.isRead) Icons.Default.BookmarkBorder else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = if (novel.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                )
+            },
+            onClick = {
+                onDismiss()
+                onToggleRead()
+            }
+        )
+        DropdownMenuItem(
+            text = {
+                Column {
+                    Text(
+                        text = if (novel.customCoverPath != null) "Cambiar portada" else "Añadir portada",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Formato estándar para libros (2:3)",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Image,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary
+                )
+            },
+            onClick = {
+                onDismiss()
+                onPickCover()
+            }
+        )
+        DropdownMenuItem(
+            text = {
+                Text(
+                    text = "Editar información",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            onClick = {
+                onDismiss()
+                onEdit()
+            }
+        )
+        DropdownMenuItem(
+            text = {
+                Text(
+                    text = "Eliminar historia",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            onClick = {
+                onDismiss()
+                onDelete()
+            }
+        )
+    }
+}
+
+/**
+ * Diálogo para editar nombre, categoría (género), subtítulo y sinopsis de la historia.
+ */
+@Composable
+private fun EditNovelDialog(
+    novel: Novel,
+    onDismiss: () -> Unit,
+    onSave: (title: String, genre: String, subtitle: String, synopsis: String) -> Unit
+) {
+    var title by remember { mutableStateOf(novel.title) }
+    var genre by remember { mutableStateOf(novel.genre) }
+    var subtitle by remember { mutableStateOf(novel.subtitle) }
+    var synopsis by remember { mutableStateOf(novel.synopsis) }
+
+    val suggestedGenres = listOf("Fantasía", "Ciencia Ficción", "Misterio", "Romance", "Thriller", "Histórica", "Terror", "Aventura")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Editar información",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Título de la historia") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = genre,
+                    onValueChange = { genre = it },
+                    label = { Text("Categoría / Género") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Chips de sugerencia rápida de género
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    suggestedGenres.forEach { g ->
+                        FilterChip(
+                            selected = genre.equals(g, ignoreCase = true),
+                            onClick = { genre = g },
+                            label = { Text(g, style = MaterialTheme.typography.labelSmall) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = subtitle,
+                    onValueChange = { subtitle = it },
+                    label = { Text("Subtítulo o lema") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = synopsis,
+                    onValueChange = { synopsis = it },
+                    label = { Text("Sinopsis") },
+                    minLines = 3,
+                    maxLines = 6,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        onSave(title, genre, subtitle, synopsis)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Guardar cambios")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
+}
+
+/**
+ * Diálogo de confirmación para eliminar una historia.
+ */
+@Composable
+private fun DeleteNovelDialog(
+    novel: Novel,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Eliminar historia",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text(
+                text = "¿Estás seguro de que deseas eliminar permanentemente \"${novel.title}\"?\n\nEsta acción no se puede deshacer y se borrarán todos sus capítulos, notas y personajes asociados.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) {
+                Text("Eliminar definitivamente")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
 
 @Composable

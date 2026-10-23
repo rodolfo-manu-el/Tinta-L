@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+// Tinta Obra Screen - Updated for streamlined editorial view
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -258,24 +259,25 @@ fun ObraScreen(
                         }
                     }
 
-                    // Quick Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    // Export Action Button
+                    OutlinedButton(
+                        onClick = { showExportDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("export_button")
                     ) {
-                        ActionCardButton(
-                            icon = Icons.Default.MenuBook,
-                            label = "Escribir",
-                            isPrimary = true,
-                            onClick = { viewModel.openWritingStudio() },
-                            modifier = Modifier.weight(1f)
+                        Icon(
+                            imageVector = Icons.Default.FileDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
                         )
-                        ActionCardButton(
-                            icon = Icons.Default.FileDownload,
-                            label = "Exportar",
-                            isPrimary = false,
-                            onClick = { showExportDialog = true },
-                            modifier = Modifier.weight(1f)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Exportar",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -345,64 +347,6 @@ fun ObraScreen(
                             label = "PALABRAS",
                             modifier = Modifier.weight(1f)
                         )
-                        MetricBox(
-                            value = "${String.format("%,d", currentNovel.targetWords).replace(',', '.')}",
-                            label = "META",
-                            isSecondary = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            // Continuar sesión
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = "SESIÓN DE ESCRITURA",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = currentNovel.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Edición activa",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Button(
-                        onClick = { viewModel.openWritingStudio() },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        modifier = Modifier.testTag("redactar_next_button")
-                    ) {
-                        Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Redactar", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -469,7 +413,7 @@ fun ObraScreen(
                                         .fillMaxWidth()
                                         .clickable {
                                             viewModel.selectChapter(chapter.id)
-                                            viewModel.openWritingStudio()
+                                            viewModel.openWritingStudio(chapter.id)
                                         }
                                 ) {
                                     Row(
@@ -607,43 +551,7 @@ private fun ExportFormatOption(
     }
 }
 
-@Composable
-private fun ActionCardButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    isPrimary: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = if (isPrimary) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .clickable { onClick() }
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isPrimary) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isPrimary) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
+
 
 @Composable
 private fun MetricBox(
