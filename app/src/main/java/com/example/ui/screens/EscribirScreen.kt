@@ -36,12 +36,14 @@ import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,11 +51,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -110,13 +112,15 @@ fun EscribirScreen(
     val activeChapterId by viewModel.activeChapterId.collectAsStateWithLifecycle()
     val chapterContent by viewModel.chapterContent.collectAsStateWithLifecycle()
     val isFinished by viewModel.isChapterFinished.collectAsStateWithLifecycle()
+    val chapterStatus by viewModel.chapterStatus.collectAsStateWithLifecycle()
+    val isSavingContent by viewModel.isSavingContent.collectAsStateWithLifecycle()
     val paperTexture by viewModel.paperTexture.collectAsStateWithLifecycle()
     val selectedFont by viewModel.selectedFont.collectAsStateWithLifecycle()
     val marginNotes by viewModel.activeNotes.collectAsStateWithLifecycle()
-    val chapterVersions by viewModel.chapterVersions.collectAsStateWithLifecycle()
 
     val isTimerRunning by viewModel.isTimerRunning.collectAsStateWithLifecycle()
     val timerSeconds by viewModel.timerSeconds.collectAsStateWithLifecycle()
+    val timerInitialMinutes by viewModel.timerInitialMinutes.collectAsStateWithLifecycle()
     val wordsWrittenInSession by viewModel.wordsWrittenInSession.collectAsStateWithLifecycle()
     val isDarkThemeState by viewModel.isDarkTheme.collectAsStateWithLifecycle()
 
@@ -136,7 +140,8 @@ fun EscribirScreen(
     }
 
     var isChapterDropdownExpanded by remember { mutableStateOf(false) }
-    var showVersionsDialog by remember { mutableStateOf(false) }
+    var isStatusDropdownExpanded by remember { mutableStateOf(false) }
+    var showTimerDialog by remember { mutableStateOf(false) }
 
     val currentChapter = activeChapters.find { it.id == activeChapterId }
     val currentChapterIndex = activeChapters.indexOfFirst { it.id == activeChapterId }
@@ -377,7 +382,7 @@ fun EscribirScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Pomodoro Widget
+                    // Interactive Pomodoro Widget
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -386,8 +391,8 @@ fun EscribirScreen(
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -398,12 +403,26 @@ fun EscribirScreen(
                             val minutes = timerSeconds / 60
                             val seconds = timerSeconds % 60
                             val timerFormatted = String.format("%02d:%02d", minutes, seconds)
-                            Text(
-                                text = timerFormatted,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = textPrimary
-                            )
+
+                            Row(
+                                modifier = Modifier.clickable { showTimerDialog = true },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = timerFormatted,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textPrimary
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = "Ajustar tiempo",
+                                    tint = textMuted,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+
                             IconButton(
                                 onClick = { viewModel.toggleTimer() },
                                 modifier = Modifier.size(20.dp)
@@ -415,44 +434,154 @@ fun EscribirScreen(
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
+
+                            IconButton(
+                                onClick = { showTimerDialog = true },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = "Configurar / Reiniciar temporizador",
+                                    tint = textMuted,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
                         }
                     }
 
-                    // Draft status & Save checkmark
+                    // Chapter Status Dropdown & Dynamic Save Indicator
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.clickable { viewModel.toggleChapterFinished() }
-                        ) {
-                            Text(
-                                text = if (isFinished) "✓ Terminado" else "Borrador",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = textMuted,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
+                        // Chapter Status Selector Dropdown
+                        Box {
+                            val statusBgColor = when (chapterStatus) {
+                                "Terminado" -> Color(0xFF10B981).copy(alpha = 0.15f)
+                                "En Revisión" -> Color(0xFF3B82F6).copy(alpha = 0.15f)
+                                else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                            }
+                            val statusTextColor = when (chapterStatus) {
+                                "Terminado" -> Color(0xFF10B981)
+                                "En Revisión" -> Color(0xFF3B82F6)
+                                else -> textMuted
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = statusBgColor,
+                                border = BorderStroke(1.dp, statusTextColor.copy(alpha = 0.4f)),
+                                modifier = Modifier.clickable { isStatusDropdownExpanded = true }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    val statusLabel = when (chapterStatus) {
+                                        "Terminado" -> "✓ Terminado"
+                                        "En Revisión" -> "🔍 En Revisión"
+                                        else -> "📝 Borrador"
+                                    }
+                                    Text(
+                                        text = statusLabel,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = statusTextColor,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Cambiar estado",
+                                        tint = statusTextColor,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = isStatusDropdownExpanded,
+                                onDismissRequest = { isStatusDropdownExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.Edit, contentDescription = null, tint = textMuted, modifier = Modifier.size(14.dp))
+                                            Text("Borrador", color = textPrimary)
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setChapterStatus("Borrador")
+                                        isStatusDropdownExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(14.dp))
+                                            Text("En Revisión", color = Color(0xFF3B82F6), fontWeight = FontWeight.Medium)
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setChapterStatus("En Revisión")
+                                        isStatusDropdownExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                            Text("Terminado", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setChapterStatus("Terminado")
+                                        isStatusDropdownExpanded = false
+                                    }
+                                )
+                            }
                         }
 
+                        // Dynamic Auto-Save State Indicator
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Text(
-                                text = "Guardado",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = Color(0xFF10B981),
-                                fontWeight = FontWeight.Medium
-                            )
+                            if (isSavingContent) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    tint = TintaAccent,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Guardando...",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = TintaAccent,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = Color(0xFF10B981),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Guardado en local",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = Color(0xFF10B981),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
@@ -699,7 +828,7 @@ fun EscribirScreen(
                     // Divider
                     Box(modifier = Modifier.height(20.dp).width(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
 
-                    // Assistant / History Group
+                    // Assistant Group
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         // Musas Creative Craft Assist
                         Surface(
@@ -722,35 +851,130 @@ fun EscribirScreen(
                                 Text("Musas", style = MaterialTheme.typography.labelSmall, color = TintaAccent, fontWeight = FontWeight.Bold)
                             }
                         }
-
-                        // History Versions Button
-                        IconButton(
-                            onClick = { showVersionsDialog = true },
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                        ) {
-                            Icon(imageVector = Icons.Default.History, contentDescription = "Historial", tint = textMuted, modifier = Modifier.size(16.dp))
-                        }
                     }
                 }
             }
         }
 
-        // Version History Dialog
-        if (showVersionsDialog) {
-            VersionHistoryDialog(
-                versions = chapterVersions,
-                onDismiss = { showVersionsDialog = false },
-                onRestore = { version ->
-                    viewModel.restoreVersion(version)
-                    showVersionsDialog = false
+        // Pomodoro Timer Customization Dialog
+        if (showTimerDialog) {
+            PomodoroTimerDialog(
+                initialMinutes = timerInitialMinutes,
+                onDismiss = { showTimerDialog = false },
+                onReset = {
+                    viewModel.resetTimer()
+                    showTimerDialog = false
+                },
+                onSelectDuration = { minutes ->
+                    viewModel.setTimerDuration(minutes)
+                    showTimerDialog = false
                 }
             )
         }
     }
+}
+
+@Composable
+private fun PomodoroTimerDialog(
+    initialMinutes: Int,
+    onDismiss: () -> Unit,
+    onReset: () -> Unit,
+    onSelectDuration: (Int) -> Unit
+) {
+    var customMinutesInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(imageVector = Icons.Default.Timer, contentDescription = null, tint = TintaAccent)
+                Text(text = "Ajustes de Cronómetro")
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Selecciona un tiempo predefinido o reinicia el cronómetro para tu sesión de escritura:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Quick Preset Chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(15, 25, 45, 60).forEach { mins ->
+                        val isSelected = initialMinutes == mins
+                        OutlinedButton(
+                            onClick = { onSelectDuration(mins) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, if (isSelected) TintaAccent else MaterialTheme.colorScheme.outline),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) TintaAccent.copy(alpha = 0.15f) else Color.Transparent
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "${mins}m",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) TintaAccent else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                // Custom duration input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customMinutesInput,
+                        onValueChange = { customMinutesInput = it.filter { char -> char.isDigit() } },
+                        label = { Text("Personalizado (min)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            val mins = customMinutesInput.toIntOrNull()
+                            if (mins != null && mins in 1..180) {
+                                onSelectDuration(mins)
+                            }
+                        },
+                        enabled = customMinutesInput.isNotBlank() && (customMinutesInput.toIntOrNull() ?: 0) in 1..180,
+                        colors = ButtonDefaults.buttonColors(containerColor = TintaAccent)
+                    ) {
+                        Text("Aplicar")
+                    }
+                }
+
+                // Reset button
+                Button(
+                    onClick = onReset,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reiniciar Cronómetro (${initialMinutes}m)", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar")
+            }
+        }
+    )
 }
 
 @Composable
@@ -844,91 +1068,6 @@ private fun FormatIconButton(
     }
 }
 
-@Composable
-private fun VersionHistoryDialog(
-    versions: List<ChapterVersion>,
-    onDismiss: () -> Unit,
-    onRestore: (ChapterVersion) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(imageVector = Icons.Default.History, contentDescription = null, tint = TintaAccent)
-                Text(text = "Historial de Versiones")
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (versions.isEmpty()) {
-                    Text(
-                        text = "Aún no hay versiones o borradores guardados para este capítulo.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    versions.forEach { version ->
-                        Card(
-                            shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "⏱️ ${version.timeFormatted}",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = TintaAccent
-                                    )
-                                    Text(
-                                        text = "${version.wordCount} palabras",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Text(
-                                    text = version.content.take(80) + if (version.content.length > 80) "..." else "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 2
-                                )
-                                OutlinedButton(
-                                    onClick = { onRestore(version) },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.align(Alignment.End)
-                                ) {
-                                    Text("Restaurar")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cerrar")
-            }
-        }
-    )
-}
 
 @Composable
 private fun SectionMarginNotes(
