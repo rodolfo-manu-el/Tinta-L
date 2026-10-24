@@ -44,8 +44,8 @@ interface NovelDao {
     @Query("UPDATE novels SET title = :title, genre = :genre, subtitle = :subtitle, synopsis = :synopsis WHERE id = :id")
     suspend fun updateNovelDetails(id: String, title: String, genre: String, subtitle: String, synopsis: String)
 
-    @Query("UPDATE novels SET wordCount = :wordCount, progressPercent = :progress WHERE id = :id")
-    suspend fun updateNovelMetrics(id: String, wordCount: Int, progress: Int)
+    @Query("UPDATE novels SET wordCount = :wordCount, completedChapters = :completedChapters, totalChapters = :totalChapters, progressPercent = :progress WHERE id = :id")
+    suspend fun updateNovelMetrics(id: String, wordCount: Int, completedChapters: Int, totalChapters: Int, progress: Int)
 
     @Query("DELETE FROM novels WHERE id = :id")
     suspend fun deleteNovelById(id: String)

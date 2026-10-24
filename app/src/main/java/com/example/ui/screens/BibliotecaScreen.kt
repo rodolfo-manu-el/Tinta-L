@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
@@ -96,12 +97,10 @@ fun BibliotecaScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
 
-    // Ordenar de tal forma que las historias no leídas aparezcan primero; las leídas van en segundo plano / abajo
-    val featuredNovel = novels.firstOrNull { !it.isRead && it.isFeatured }
-        ?: novels.firstOrNull { !it.isRead }
-        ?: novels.firstOrNull { it.isFeatured }
-        ?: novels.firstOrNull()
-    val secondaryNovels = novels.filter { it.id != featuredNovel?.id }
+    // Separar claramente los manuscritos en progreso de los finalizados/leídos
+    val inProgressNovels = novels.filter { !it.isRead && !it.status.equals("Terminada", ignoreCase = true) }
+    val archivedNovels = novels.filter { it.isRead || it.status.equals("Terminada", ignoreCase = true) }
+    val hasInProgressNovels = allNovels.any { !it.isRead && !it.status.equals("Terminada", ignoreCase = true) }
 
     var novelToEdit by remember { mutableStateOf<Novel?>(null) }
     var novelToDelete by remember { mutableStateOf<Novel?>(null) }
@@ -125,15 +124,24 @@ fun BibliotecaScreen(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
-        // Author Greeting & Status
+        // Author Greeting & Status - El banner 'En progreso' solo se muestra si hay historias activas y no se está en Archivados
         SectionGreeting(
-            hasNovels = allNovels.isNotEmpty(),
+            hasInProgressNovels = hasInProgressNovels && selectedFilter != FilterOption.ARCHIVED,
             onStreakClick = { viewModel.showToast("Tinta & Trama listo para escribir") }
         )
 
-        // Stat Pills Row
+        // Stat Pills Row con acceso directo a la Guía / Tutorial
         StatPillsRow(
-            totalNovels = allNovels.size
+            totalNovels = allNovels.size,
+            onOpenTutorial = {
+                val tutorial = allNovels.firstOrNull { it.id == "bienvenido-a-tinta" || it.isTutorial }
+                if (tutorial != null) {
+                    viewModel.selectNovel(tutorial.id)
+                    viewModel.openWritingStudio()
+                } else {
+                    viewModel.showToast("Abriendo guía de Tinta...")
+                }
+            }
         )
 
         val documentImportLauncher = rememberLauncherForActivityResult(
@@ -240,42 +248,138 @@ fun BibliotecaScreen(
                 }
             }
         } else {
-            // Featured Active Novel Card
-            featuredNovel?.let { novel ->
-                SectionFeaturedNovel(
-                    novel = novel,
-                    onContinueWriting = {
-                        viewModel.selectNovel(novel.id)
-                        viewModel.openWritingStudio()
-                    },
-                    onToggleRead = { viewModel.toggleNovelRead(novel.id) },
-                    onPickCover = {
-                        novelForCoverPicker = novel
-                        coverPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            when (selectedFilter) {
+                FilterOption.IN_PROGRESS -> {
+                    if (inProgressNovels.isEmpty()) {
+                        EmptyFilterSectionCard(
+                            message = "No tienes manuscritos en progreso actualmente.",
+                            buttonText = "Crear nuevo manuscrito",
+                            onAction = { viewModel.openCreateModal("novel") }
                         )
-                    },
-                    onEdit = { novelToEdit = novel },
-                    onDelete = { novelToDelete = novel }
-                )
-            }
+                    } else {
+                        val featured = inProgressNovels.firstOrNull { it.isFeatured } ?: inProgressNovels.first()
+                        val others = inProgressNovels.filter { it.id != featured.id }
+                        SectionFeaturedNovel(
+                            novel = featured,
+                            onContinueWriting = {
+                                viewModel.selectNovel(featured.id)
+                                viewModel.openWritingStudio()
+                            },
+                            onToggleRead = { viewModel.toggleNovelRead(featured.id) },
+                            onPickCover = {
+                                novelForCoverPicker = featured
+                                coverPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onEdit = { novelToEdit = featured },
+                            onDelete = { novelToDelete = featured }
+                        )
+                        if (others.isNotEmpty()) {
+                            SectionSecondaryNovels(
+                                title = "OTROS MANUSCRITOS EN CURSO",
+                                novels = others,
+                                onSelectNovel = { novelId -> viewModel.selectNovel(novelId) },
+                                onViewAll = { viewModel.showToast("Mostrando ${others.size} manuscritos en curso") },
+                                onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
+                                onPickCover = { target ->
+                                    novelForCoverPicker = target
+                                    coverPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                onEdit = { target -> novelToEdit = target },
+                                onDelete = { target -> novelToDelete = target }
+                            )
+                        }
+                    }
+                }
+                FilterOption.ARCHIVED -> {
+                    if (archivedNovels.isEmpty()) {
+                        EmptyFilterSectionCard(
+                            message = "No tienes manuscritos leídos o archivados aún.",
+                            buttonText = "Ver todos los manuscritos",
+                            onAction = { viewModel.onFilterSelected(FilterOption.ALL) }
+                        )
+                    } else {
+                        SectionArchivedNovels(
+                            novels = archivedNovels,
+                            onSelectNovel = { novelId ->
+                                viewModel.selectNovel(novelId)
+                                viewModel.openWritingStudio()
+                            },
+                            onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
+                            onPickCover = { target ->
+                                novelForCoverPicker = target
+                                coverPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onEdit = { target -> novelToEdit = target },
+                            onDelete = { target -> novelToDelete = target }
+                        )
+                    }
+                }
+                FilterOption.ALL -> {
+                    // Si existen manuscritos en curso, se muestra el destacado en progreso
+                    if (inProgressNovels.isNotEmpty()) {
+                        val featured = inProgressNovels.firstOrNull { it.isFeatured } ?: inProgressNovels.first()
+                        val others = inProgressNovels.filter { it.id != featured.id }
+                        SectionFeaturedNovel(
+                            novel = featured,
+                            onContinueWriting = {
+                                viewModel.selectNovel(featured.id)
+                                viewModel.openWritingStudio()
+                            },
+                            onToggleRead = { viewModel.toggleNovelRead(featured.id) },
+                            onPickCover = {
+                                novelForCoverPicker = featured
+                                coverPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onEdit = { novelToEdit = featured },
+                            onDelete = { novelToDelete = featured }
+                        )
+                        if (others.isNotEmpty()) {
+                            SectionSecondaryNovels(
+                                title = "OTROS MANUSCRITOS EN CURSO",
+                                novels = others,
+                                onSelectNovel = { novelId -> viewModel.selectNovel(novelId) },
+                                onViewAll = { viewModel.showToast("Mostrando ${others.size} manuscritos en curso") },
+                                onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
+                                onPickCover = { target ->
+                                    novelForCoverPicker = target
+                                    coverPickerLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                onEdit = { target -> novelToEdit = target },
+                                onDelete = { target -> novelToDelete = target }
+                            )
+                        }
+                    }
 
-            // Secondary Manuscripts
-            if (secondaryNovels.isNotEmpty()) {
-                SectionSecondaryNovels(
-                    novels = secondaryNovels,
-                    onSelectNovel = { novelId -> viewModel.selectNovel(novelId) },
-                    onViewAll = { viewModel.showToast("Mostrando catálogo de ${novels.size} manuscritos") },
-                    onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
-                    onPickCover = { target ->
-                        novelForCoverPicker = target
-                        coverPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    // Sección destacada de Leídos / Archivados
+                    if (archivedNovels.isNotEmpty()) {
+                        SectionArchivedNovels(
+                            novels = archivedNovels,
+                            onSelectNovel = { novelId ->
+                                viewModel.selectNovel(novelId)
+                                viewModel.openWritingStudio()
+                            },
+                            onToggleRead = { target -> viewModel.toggleNovelRead(target.id) },
+                            onPickCover = { target ->
+                                novelForCoverPicker = target
+                                coverPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            onEdit = { target -> novelToEdit = target },
+                            onDelete = { target -> novelToDelete = target }
                         )
-                    },
-                    onEdit = { target -> novelToEdit = target },
-                    onDelete = { target -> novelToDelete = target }
-                )
+                    }
+                }
             }
         }
 
@@ -308,7 +412,7 @@ fun BibliotecaScreen(
 }
 
 @Composable
-private fun SectionGreeting(hasNovels: Boolean, onStreakClick: () -> Unit) {
+private fun SectionGreeting(hasInProgressNovels: Boolean, onStreakClick: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -330,8 +434,8 @@ private fun SectionGreeting(hasNovels: Boolean, onStreakClick: () -> Unit) {
                 )
             }
 
-            if (hasNovels) {
-                // Active writing indicator
+            // El indicador / badge "En progreso" solo se renderiza si hay manuscritos en progreso activos
+            if (hasInProgressNovels) {
                 Surface(
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
@@ -358,7 +462,7 @@ private fun SectionGreeting(hasNovels: Boolean, onStreakClick: () -> Unit) {
         }
 
         Text(
-            text = if (hasNovels) "\"Las palabras bien ordenadas dan vida a grandes historias.\"" else "Organiza tus novelas, capítulos y personajes en un solo lugar.",
+            text = if (hasInProgressNovels) "\"Las palabras bien ordenadas dan vida a grandes historias.\"" else "Organiza tus novelas, capítulos y personajes en un solo lugar.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = FontStyle.Italic
@@ -367,7 +471,10 @@ private fun SectionGreeting(hasNovels: Boolean, onStreakClick: () -> Unit) {
 }
 
 @Composable
-private fun StatPillsRow(totalNovels: Int) {
+private fun StatPillsRow(
+    totalNovels: Int,
+    onOpenTutorial: (() -> Unit)? = null
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -379,6 +486,37 @@ private fun StatPillsRow(totalNovels: Int) {
             iconTint = MaterialTheme.colorScheme.primary,
             label = "$totalNovels ${if (totalNovels == 1) "historia en biblioteca" else "historias en biblioteca"}"
         )
+
+        if (onOpenTutorial != null) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable { onOpenTutorial() }
+                    .testTag("open_tutorial_pill")
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = "✨ Guía de la App",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -841,6 +979,7 @@ private fun SectionFeaturedNovel(
 @Composable
 private fun SectionSecondaryNovels(
     novels: List<Novel>,
+    title: String = "OTRAS OBRAS & BORRADORES",
     onSelectNovel: (String) -> Unit,
     onViewAll: () -> Unit,
     onToggleRead: (Novel) -> Unit,
@@ -855,7 +994,7 @@ private fun SectionSecondaryNovels(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "OTRAS OBRAS & BORRADORES",
+                text = title,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold,
@@ -1083,6 +1222,286 @@ private fun SectionSecondaryNovels(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionArchivedNovels(
+    novels: List<Novel>,
+    onSelectNovel: (String) -> Unit,
+    onToggleRead: (Novel) -> Unit,
+    onPickCover: (Novel) -> Unit,
+    onEdit: (Novel) -> Unit,
+    onDelete: (Novel) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BookmarkBorder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "LEÍDOS / ARCHIVADOS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+            ) {
+                Text(
+                    text = "${novels.size} ${if (novels.size == 1) "libro" else "libros"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        novels.forEach { novel ->
+            var cardMenuExpanded by remember { mutableStateOf(false) }
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectNovel(novel.id) }
+                    .testTag("archived_novel_card_${novel.id}")
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val customCoverFile = novel.customCoverPath?.let { java.io.File(it) }
+
+                    // Proporción estándar de libros (2:3 = 60dp x 90dp)
+                    Box(
+                        modifier = Modifier
+                            .width(60.dp)
+                            .height(90.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                    ) {
+                        if (customCoverFile != null && customCoverFile.exists()) {
+                            coil.compose.AsyncImage(
+                                model = customCoverFile,
+                                contentDescription = novel.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            val coverRes = when (novel.coverDrawableName) {
+                                "cover_bruma" -> R.drawable.cover_bruma
+                                "cover_helio" -> R.drawable.cover_helio
+                                else -> R.drawable.cover_silencio
+                            }
+                            Image(
+                                painter = painterResource(id = coverRes),
+                                contentDescription = novel.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                                    )
+                                )
+                        )
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Leído",
+                            tint = Color(0xFF10B981),
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(4.dp)
+                                .size(16.dp)
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF10B981).copy(alpha = 0.15f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = "LEÍDO",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = Color(0xFF10B981),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                            ) {
+                                Text(
+                                    text = "TERMINADA",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = novel.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = "${novel.genre} · ${novel.wordCount} palabras",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = "Completado · ${novel.totalChapters} capítulos",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF10B981),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Acciones: Opciones y Abrir
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box {
+                            IconButton(
+                                onClick = { cardMenuExpanded = true },
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .testTag("archived_more_button_${novel.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreHoriz,
+                                    contentDescription = "Opciones de ${novel.title}",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            NovelOptionsMenu(
+                                novel = novel,
+                                expanded = cardMenuExpanded,
+                                onDismiss = { cardMenuExpanded = false },
+                                onToggleRead = { onToggleRead(novel) },
+                                onPickCover = { onPickCover(novel) },
+                                onEdit = { onEdit(novel) },
+                                onDelete = { onDelete(novel) }
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onSelectNovel(novel.id) },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Abrir ${novel.title}",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyFilterSectionCard(
+    message: String,
+    buttonText: String,
+    onAction: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.BookmarkBorder,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+            Button(
+                onClick = onAction,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Text(buttonText)
             }
         }
     }

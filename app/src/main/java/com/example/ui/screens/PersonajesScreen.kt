@@ -926,7 +926,7 @@ private fun InteractiveCorkboard(
                             rel.toCharacterName.trim().equals(selectedCharacterName?.trim(), ignoreCase = true)
 
                     Card(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isLinkedToSelected && selectedCharacterName != null)
                                 MaterialTheme.colorScheme.surfaceContainerHighest
@@ -934,7 +934,7 @@ private fun InteractiveCorkboard(
                                 MaterialTheme.colorScheme.surfaceContainerHigh
                         ),
                         border = if (isLinkedToSelected && selectedCharacterName != null)
-                            BorderStroke(1.5.dp, badgeColor.copy(alpha = 0.6f))
+                            BorderStroke(1.5.dp, badgeColor.copy(alpha = 0.65f))
                         else
                             BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                         modifier = Modifier
@@ -943,72 +943,107 @@ private fun InteractiveCorkboard(
                     ) {
                         Column(
                             modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            // Fila superior: Tipo de vínculo con indicador de color y botón de eliminar
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.weight(1f)
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = badgeColor.copy(alpha = 0.16f),
+                                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.45f)),
+                                    modifier = Modifier.weight(1f, fill = false)
                                 ) {
-                                    Text(
-                                        text = rel.fromCharacterName,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.secondary
-                                    )
-                                    Text(
-                                        text = rel.toCharacterName,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = badgeColor.copy(alpha = 0.18f),
-                                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                                     ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(badgeColor)
+                                        )
                                         Text(
                                             text = rel.type,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = badgeColor,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { onDeleteRelationship(rel.id) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Eliminar vínculo",
-                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                                            modifier = Modifier.size(16.dp)
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
+
+                                IconButton(
+                                    onClick = { onDeleteRelationship(rel.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Eliminar vínculo",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
                             }
+
+                            // Fila de personajes: Origen -> Destino con chips adaptativos
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    Text(
+                                        text = rel.fromCharacterName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                                    modifier = Modifier.weight(1f, fill = false)
+                                ) {
+                                    Text(
+                                        text = rel.toCharacterName,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+
                             if (rel.description.isNotBlank()) {
                                 Text(
                                     text = rel.description,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 18.sp
                                 )
                             }
                         }
