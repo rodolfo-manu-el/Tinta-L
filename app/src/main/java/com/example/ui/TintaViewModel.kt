@@ -873,6 +873,13 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteRelationship(relationshipId: Long) {
+        viewModelScope.launch {
+            repository.deleteRelationship(relationshipId)
+            showToast("Vínculo eliminado")
+        }
+    }
+
     fun updateCharacter(character: CharacterEntity) {
         viewModelScope.launch {
             repository.insertCharacter(character)

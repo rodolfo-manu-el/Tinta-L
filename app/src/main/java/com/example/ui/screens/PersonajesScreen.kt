@@ -9,14 +9,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,7 +31,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Group
@@ -53,7 +63,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,14 +75,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.data.model.CharacterEntity
@@ -317,6 +333,9 @@ fun PersonajesScreen(
                 relationships = relationships,
                 onCreateRelationship = { from, to, type, desc ->
                     viewModel.createRelationship(from, to, type, desc)
+                },
+                onDeleteRelationship = { relId ->
+                    viewModel.deleteRelationship(relId)
                 }
             )
         } else {
@@ -569,9 +588,12 @@ private fun CardGenericCharacter(
 private fun InteractiveCorkboard(
     characters: List<CharacterEntity>,
     relationships: List<Relationship>,
-    onCreateRelationship: (String, String, String, String) -> Unit
+    onCreateRelationship: (String, String, String, String) -> Unit,
+    onDeleteRelationship: (Long) -> Unit
 ) {
     var showAddRelDialog by remember { mutableStateOf(false) }
+    var selectedCharacterName by remember { mutableStateOf<String?>(null) }
+    val characterPositions = remember { mutableStateMapOf<String, Offset>() }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
@@ -583,123 +605,306 @@ private fun InteractiveCorkboard(
                 text = "Red de Tensión y Lealtades (${relationships.size} vínculos)",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
             Button(
                 onClick = { showAddRelDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                shape = RoundedCornerShape(10.dp)
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Nuevo Vínculo", style = MaterialTheme.typography.labelSmall)
+                Text(
+                    text = "Nuevo Vínculo",
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
 
+        // Selected Character Filter Banner
+        selectedCharacterName?.let { selName ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TouchApp,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Enfocando vínculos de: $selName",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(
+                        onClick = { selectedCharacterName = null },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Limpiar filtro",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Cork Board Container with Canvas and Draggable Cards
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1714)),
+            border = BorderStroke(2.dp, Color(0xFF7C4D3B).copy(alpha = 0.55f)),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(460.dp)
+                .height(470.dp)
                 .testTag("corkboard_canvas")
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val p1 = Offset(size.width * 0.28f, size.height * 0.28f)
-                    val p2 = Offset(size.width * 0.72f, size.height * 0.32f)
-                    val p3 = Offset(size.width * 0.35f, size.height * 0.75f)
-                    val p4 = Offset(size.width * 0.75f, size.height * 0.78f)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val maxWidthPx = constraints.maxWidth.toFloat()
+                val maxHeightPx = constraints.maxHeight.toFloat()
+                val density = LocalDensity.current
+                val cardWidthDp = 136.dp
+                val cardHeightDp = 86.dp
+                val cardWidthPx = with(density) { cardWidthDp.toPx() }
+                val cardHeightPx = with(density) { cardHeightDp.toPx() }
+                val pinOffsetY = with(density) { 10.dp.toPx() }
 
-                    drawLine(
-                        color = Color(0xFFFB7185),
-                        start = p1,
-                        end = p2,
-                        strokeWidth = 3f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
-                    )
-                    drawLine(
-                        color = Color(0xFFEF4444),
-                        start = p1,
-                        end = p3,
-                        strokeWidth = 3.5f
-                    )
-                    drawLine(
-                        color = Color(0xFF34D399),
-                        start = p2,
-                        end = p4,
-                        strokeWidth = 3f
-                    )
-                    drawLine(
-                        color = Color(0xFF38BDF8),
-                        start = p1,
-                        end = p4,
-                        strokeWidth = 2.5f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
-                    )
+                // Automatically position characters smoothly when loaded
+                LaunchedEffect(characters, maxWidthPx, maxHeightPx) {
+                    if (maxWidthPx > 0 && maxHeightPx > 0 && characters.isNotEmpty()) {
+                        val total = characters.size
+                        characters.forEachIndexed { index, char ->
+                            if (!characterPositions.containsKey(char.name)) {
+                                val pos = when {
+                                    total == 1 -> {
+                                        Offset(
+                                            x = (maxWidthPx - cardWidthPx) / 2f,
+                                            y = (maxHeightPx - cardHeightPx) / 2f
+                                        )
+                                    }
+                                    total == 2 -> {
+                                        if (index == 0) Offset(20f, (maxHeightPx - cardHeightPx) / 2f)
+                                        else Offset(maxWidthPx - cardWidthPx - 20f, (maxHeightPx - cardHeightPx) / 2f)
+                                    }
+                                    total <= 4 -> {
+                                        when (index) {
+                                            0 -> Offset(18f, 24f)
+                                            1 -> Offset(maxWidthPx - cardWidthPx - 18f, 32f)
+                                            2 -> Offset(24f, maxHeightPx - cardHeightPx - 36f)
+                                            else -> Offset(maxWidthPx - cardWidthPx - 24f, maxHeightPx - cardHeightPx - 28f)
+                                        }
+                                    }
+                                    else -> {
+                                        val centerX = (maxWidthPx - cardWidthPx) / 2f
+                                        val centerY = (maxHeightPx - cardHeightPx) / 2f
+                                        val radiusX = ((maxWidthPx - cardWidthPx) / 2f) * 0.72f
+                                        val radiusY = ((maxHeightPx - cardHeightPx) / 2f) * 0.72f
+                                        val angle = (2 * Math.PI * index / total) - (Math.PI / 2)
+                                        Offset(
+                                            x = (centerX + radiusX * kotlin.math.cos(angle)).toFloat()
+                                                .coerceIn(12f, maxWidthPx - cardWidthPx - 12f),
+                                            y = (centerY + radiusY * kotlin.math.sin(angle)).toFloat()
+                                                .coerceIn(12f, maxHeightPx - cardHeightPx - 12f)
+                                        )
+                                    }
+                                }
+                                characterPositions[char.name] = pos
+                            }
+                        }
+                    }
                 }
 
-                val char1 = characters.getOrNull(0)
-                val char2 = characters.getOrNull(1)
-                val char3 = characters.getOrNull(2)
-                val char4 = characters.getOrNull(3)
+                if (characters.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Text(
+                                text = "El mapa de corcho está esperando a tus personajes",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Crea personajes en 'Fichas de Personajes' para vincularlos con hilos de tensión y alianzas.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    // Canvas to draw cork texture & real dynamic relationship threads
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Cork texture dots
+                        val step = 32.dp.toPx()
+                        var gx = step
+                        while (gx < size.width) {
+                            var gy = step
+                            while (gy < size.height) {
+                                drawCircle(
+                                    color = Color.White.copy(alpha = 0.035f),
+                                    radius = 1.2f,
+                                    center = Offset(gx, gy)
+                                )
+                                gy += step
+                            }
+                            gx += step
+                        }
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 24.dp, top = 36.dp)
-                ) {
-                    CorkCard(
-                        name = char1?.name ?: "Aria Thorne",
-                        role = char1?.roleTag ?: "Protagonista",
-                        tag = char1?.epithet ?: "Escriba",
-                        pinColor = Color(0xFFFB7185)
-                    )
-                }
+                        // Draw threads between character pins
+                        relationships.forEach { rel ->
+                            val fromCardPos = characterPositions.entries.firstOrNull {
+                                it.key.trim().equals(rel.fromCharacterName.trim(), ignoreCase = true)
+                            }?.value
+                            val toCardPos = characterPositions.entries.firstOrNull {
+                                it.key.trim().equals(rel.toCharacterName.trim(), ignoreCase = true)
+                            }?.value
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 24.dp, top = 48.dp)
-                ) {
-                    CorkCard(
-                        name = char2?.name ?: "Mateo Corvus",
-                        role = char2?.roleTag ?: "Deuteragonista",
-                        tag = char2?.epithet ?: "Cartógrafo",
-                        pinColor = Color(0xFF34D399)
-                    )
-                }
+                            if (fromCardPos != null && toCardPos != null) {
+                                val p1 = Offset(fromCardPos.x + cardWidthPx / 2f, fromCardPos.y + pinOffsetY)
+                                val p2 = Offset(toCardPos.x + cardWidthPx / 2f, toCardPos.y + pinOffsetY)
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 32.dp, bottom = 48.dp)
-                ) {
-                    CorkCard(
-                        name = char3?.name ?: "Lord Valerius",
-                        role = char3?.roleTag ?: "Antagonista",
-                        tag = char3?.epithet ?: "Inquisidor",
-                        pinColor = Color(0xFFEF4444)
-                    )
-                }
+                                val (baseColor, pathEffect) = getRelationshipStyle(rel.type)
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 28.dp, bottom = 36.dp)
-                ) {
-                    CorkCard(
-                        name = char4?.name ?: "Célere",
-                        role = char4?.roleTag ?: "Compañera Alada",
-                        tag = char4?.epithet ?: "Mensajero",
-                        pinColor = Color(0xFF38BDF8)
-                    )
+                                val isHighlighted = selectedCharacterName == null ||
+                                        rel.fromCharacterName.trim().equals(selectedCharacterName?.trim(), ignoreCase = true) ||
+                                        rel.toCharacterName.trim().equals(selectedCharacterName?.trim(), ignoreCase = true)
+
+                                val lineColor = if (isHighlighted) baseColor else baseColor.copy(alpha = 0.16f)
+                                val strokeW = if (selectedCharacterName != null && isHighlighted) 4.5f else 3f
+
+                                if (isHighlighted) {
+                                    // Outer thread glow
+                                    drawLine(
+                                        color = lineColor.copy(alpha = 0.22f),
+                                        start = p1,
+                                        end = p2,
+                                        strokeWidth = strokeW + 4f,
+                                        pathEffect = pathEffect
+                                    )
+                                }
+
+                                // Main thread line
+                                drawLine(
+                                    color = lineColor,
+                                    start = p1,
+                                    end = p2,
+                                    strokeWidth = strokeW,
+                                    pathEffect = pathEffect
+                                )
+                            }
+                        }
+                    }
+
+                    // Interactive Draggable Character Cards
+                    characters.forEachIndexed { idx, char ->
+                        val pos = characterPositions[char.name] ?: Offset(
+                            x = (20f + (idx * 24)).coerceAtMost(maxWidthPx - cardWidthPx - 10f),
+                            y = (24f + (idx * 28)).coerceAtMost(maxHeightPx - cardHeightPx - 10f)
+                        )
+                        val isSelected = selectedCharacterName?.trim().equals(char.name.trim(), ignoreCase = true)
+                        val pinColor = getCharacterPinColor(char, idx)
+
+                        Box(
+                            modifier = Modifier
+                                .offset { IntOffset(pos.x.roundToInt(), pos.y.roundToInt()) }
+                                .pointerInput(char.name) {
+                                    detectDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        val curr = characterPositions[char.name] ?: pos
+                                        val newX = (curr.x + dragAmount.x).coerceIn(8f, maxWidthPx - cardWidthPx - 8f)
+                                        val newY = (curr.y + dragAmount.y).coerceIn(8f, maxHeightPx - cardHeightPx - 8f)
+                                        characterPositions[char.name] = Offset(newX, newY)
+                                    }
+                                }
+                                .clickable {
+                                    selectedCharacterName = if (isSelected) null else char.name
+                                }
+                        ) {
+                            CorkCard(
+                                name = char.name,
+                                role = char.roleTag.ifBlank { "Personaje" },
+                                tag = char.epithet.ifBlank { char.faction.ifBlank { "Trama" } },
+                                pinColor = pinColor,
+                                isSelected = isSelected
+                            )
+                        }
+                    }
+
+                    // Reset positions & Helper hint controls
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 12.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "Arrastra con el dedo • Toca para enfocar",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = Color.White.copy(alpha = 0.45f)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            characterPositions.clear()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RestartAlt,
+                            contentDescription = "Restablecer posiciones",
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
 
-        // Listado de hilos y relaciones narrativas del corcho
+        // Listado de hilos y relaciones narrativas del corcho con opción de eliminar
         if (relationships.isNotEmpty()) {
             Column(
                 modifier = Modifier
@@ -715,10 +920,23 @@ private fun InteractiveCorkboard(
                 )
 
                 relationships.forEach { rel ->
+                    val (badgeColor, _) = getRelationshipStyle(rel.type)
+                    val isLinkedToSelected = selectedCharacterName == null ||
+                            rel.fromCharacterName.trim().equals(selectedCharacterName?.trim(), ignoreCase = true) ||
+                            rel.toCharacterName.trim().equals(selectedCharacterName?.trim(), ignoreCase = true)
+
                     Card(
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isLinkedToSelected && selectedCharacterName != null)
+                                MaterialTheme.colorScheme.surfaceContainerHighest
+                            else
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        border = if (isLinkedToSelected && selectedCharacterName != null)
+                            BorderStroke(1.5.dp, badgeColor.copy(alpha = 0.6f))
+                        else
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("relationship_card_${rel.id}")
@@ -734,7 +952,8 @@ private fun InteractiveCorkboard(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
                                     Text(
                                         text = rel.fromCharacterName,
@@ -755,17 +974,34 @@ private fun InteractiveCorkboard(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text(
-                                        text = rel.type,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = badgeColor.copy(alpha = 0.18f),
+                                        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.4f))
+                                    ) {
+                                        Text(
+                                            text = rel.type,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = badgeColor,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { onDeleteRelationship(rel.id) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Eliminar vínculo",
+                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                             if (rel.description.isNotBlank()) {
@@ -782,60 +1018,261 @@ private fun InteractiveCorkboard(
         }
 
         if (showAddRelDialog) {
-            var fromName by remember { mutableStateOf(characters.getOrNull(0)?.name ?: "Aria Thorne") }
-            var toName by remember { mutableStateOf(characters.getOrNull(1)?.name ?: "Mateo Corvus") }
-            var relType by remember { mutableStateOf("Alianza Estratégica") }
-            var description by remember { mutableStateOf("Pacto de lealtad mutua en la consecución del manuscrito.") }
-
-            AlertDialog(
-                onDismissRequest = { showAddRelDialog = false },
-                title = { Text("Añadir Vínculo de Trama") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedTextField(
-                            value = fromName,
-                            onValueChange = { fromName = it },
-                            label = { Text("Personaje Origen") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = toName,
-                            onValueChange = { toName = it },
-                            label = { Text("Personaje Destino") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = relType,
-                            onValueChange = { relType = it },
-                            label = { Text("Tipo de Relación") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            label = { Text("Detalles del Vínculo") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            onCreateRelationship(fromName, toName, relType, description)
-                            showAddRelDialog = false
-                        }
-                    ) {
-                        Text("Trazar Hilo")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showAddRelDialog = false }) {
-                        Text("Cancelar")
-                    }
+            AddRelationshipDialog(
+                characters = characters,
+                onDismiss = { showAddRelDialog = false },
+                onConfirm = { from, to, type, desc ->
+                    onCreateRelationship(from, to, type, desc)
+                    showAddRelDialog = false
                 }
             )
         }
     }
+}
+
+private fun getRelationshipStyle(type: String): Pair<Color, PathEffect?> {
+    val lower = type.lowercase()
+    return when {
+        lower.contains("enemist") || lower.contains("rival") || lower.contains("odio") || lower.contains("conflicto") || lower.contains("antagonis") -> {
+            Pair(Color(0xFFEF4444), null)
+        }
+        lower.contains("alianza") || lower.contains("amistad") || lower.contains("lealtad") || lower.contains("amor") || lower.contains("apoyo") -> {
+            Pair(Color(0xFF10B981), null)
+        }
+        lower.contains("secreto") || lower.contains("traición") || lower.contains("sospecha") || lower.contains("oculto") || lower.contains("tensión") -> {
+            Pair(Color(0xFFF59E0B), PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f))
+        }
+        lower.contains("famil") || lower.contains("mentor") || lower.contains("pacto") || lower.contains("herman") || lower.contains("sangre") -> {
+            Pair(Color(0xFF38BDF8), PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f))
+        }
+        else -> {
+            Pair(Color(0xFFA855F7), null)
+        }
+    }
+}
+
+private fun getCharacterPinColor(character: CharacterEntity, index: Int): Color {
+    val role = character.roleTag.lowercase()
+    return when {
+        character.isProtagonist || role.contains("protagonista") -> Color(0xFFFB7185)
+        character.isDeuteragonist || role.contains("deuteragonista") -> Color(0xFF34D399)
+        role.contains("antagonista") || role.contains("villano") -> Color(0xFFEF4444)
+        role.contains("aliad") || role.contains("secundar") -> Color(0xFF38BDF8)
+        role.contains("mentor") || role.contains("guía") -> Color(0xFFFBBF24)
+        else -> {
+            val palette = listOf(
+                Color(0xFFFB7185), Color(0xFF34D399), Color(0xFF38BDF8),
+                Color(0xFFFBBF24), Color(0xFFA78BFA), Color(0xFFF472B6)
+            )
+            palette[index % palette.size]
+        }
+    }
+}
+
+@Composable
+private fun AddRelationshipDialog(
+    characters: List<CharacterEntity>,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String, String) -> Unit
+) {
+    if (characters.size < 2) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Personajes insuficientes", fontWeight = FontWeight.Bold) },
+            text = {
+                Text("Necesitas al menos 2 personajes registrados en la obra para trazar vínculos narrativos entre ellos.")
+            },
+            confirmButton = {
+                Button(onClick = onDismiss) {
+                    Text("Entendido")
+                }
+            }
+        )
+        return
+    }
+
+    var fromName by remember { mutableStateOf(characters[0].name) }
+    var toName by remember { mutableStateOf(characters.getOrNull(1)?.name ?: characters[0].name) }
+    var relType by remember { mutableStateOf("Alianza Estratégica") }
+    var description by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    val presetTypes = listOf(
+        "Alianza Estratégica",
+        "Rivalidad Mortal",
+        "Pacto Secreto",
+        "Lealtad / Amistad",
+        "Tensión / Sospecha",
+        "Mentoría",
+        "Familia / Sangre",
+        "Amor / Romance"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nuevo Vínculo de Trama", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Selector Personaje Origen
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Personaje Origen",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        characters.forEach { char ->
+                            val isSelected = fromName == char.name
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                                modifier = Modifier.clickable {
+                                    fromName = char.name
+                                    errorText = null
+                                }
+                            ) {
+                                Text(
+                                    text = char.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Selector Personaje Destino
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Personaje Destino",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        characters.forEach { char ->
+                            val isSelected = toName == char.name
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                                border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.secondary) else null,
+                                modifier = Modifier.clickable {
+                                    toName = char.name
+                                    errorText = null
+                                }
+                            ) {
+                                Text(
+                                    text = char.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Tipo de relación y presets
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Tipo de Relación",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    OutlinedTextField(
+                        value = relType,
+                        onValueChange = { relType = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        presetTypes.forEach { preset ->
+                            val isPresetSelected = relType.equals(preset, ignoreCase = true)
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isPresetSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainer,
+                                border = if (isPresetSelected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                                modifier = Modifier.clickable { relType = preset }
+                            ) {
+                                Text(
+                                    text = preset,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                    color = if (isPresetSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Descripción
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Detalles del Vínculo (opcional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+
+                errorText?.let { err ->
+                    Text(
+                        text = err,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (fromName == toName) {
+                        errorText = "El personaje origen y destino no pueden ser el mismo."
+                    } else {
+                        onConfirm(
+                            fromName,
+                            toName,
+                            relType.ifBlank { "Vínculo" },
+                            description.ifBlank { "Relación registrada en el mapa." }
+                        )
+                    }
+                }
+            ) {
+                Text("Trazar Hilo")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        }
+    )
 }
 
 @Composable
@@ -843,33 +1280,84 @@ private fun CorkCard(
     name: String,
     role: String,
     tag: String,
-    pinColor: Color
+    pinColor: Color,
+    isSelected: Boolean
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shadowElevation = 6.dp,
-        modifier = Modifier.width(130.dp)
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)),
+        shadowElevation = if (isSelected) 10.dp else 4.dp,
+        modifier = Modifier.width(136.dp)
     ) {
-        Box {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            // Pin head visual centered on card top
             Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(pinColor)
-            )
-            Column(
-                modifier = Modifier.padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .padding(top = 4.dp, bottom = 2.dp)
+                    .size(14.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text(name, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Text(role, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.primary)
+                Box(
+                    modifier = Modifier
+                        .size(13.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.3f))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(pinColor)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.65f))
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = role,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.padding(top = 2.dp)
                 ) {
-                    Text(tag, style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                    Text(
+                        text = tag,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }

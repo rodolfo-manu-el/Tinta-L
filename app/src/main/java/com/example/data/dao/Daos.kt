@@ -167,6 +167,9 @@ interface RelationshipDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRelationships(relationships: List<Relationship>)
 
+    @Query("DELETE FROM relationships WHERE id = :id")
+    suspend fun deleteRelationshipById(id: Long)
+
     @Query("DELETE FROM relationships WHERE novelId = :novelId")
     suspend fun deleteRelationshipsByNovel(novelId: String)
 

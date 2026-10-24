@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MenuBook
@@ -279,11 +278,6 @@ fun BibliotecaScreen(
                 )
             }
         }
-
-        // Local Backup Vault
-        SectionBackupVault(
-            onBackup = { viewModel.createBackup() }
-        )
 
         Spacer(modifier = Modifier.height(100.dp))
     }
@@ -1359,60 +1353,4 @@ private fun DeleteNovelDialog(
             }
         }
     )
-}
-
-@Composable
-private fun SectionBackupVault(
-    onBackup: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "BÓVEDA DE RESPALDO LOCAL",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.2.sp
-        )
-
-        Card(
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onBackup() }
-                .testTag("backup_button")
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DownloadForOffline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Text(
-                    text = "Respaldar biblioteca",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Exporta tus manuscritos y personajes de forma segura",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 14.sp
-                )
-            }
-        }
-    }
 }

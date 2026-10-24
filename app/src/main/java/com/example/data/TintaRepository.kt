@@ -90,6 +90,10 @@ class TintaRepository(private val database: AppDatabase) {
         database.relationshipDao().insertRelationship(relationship)
     }
 
+    suspend fun deleteRelationship(id: Long) {
+        database.relationshipDao().deleteRelationshipById(id)
+    }
+
     suspend fun toggleNovelRead(novelId: String, isRead: Boolean) {
         database.novelDao().updateReadStatus(novelId, isRead)
     }
