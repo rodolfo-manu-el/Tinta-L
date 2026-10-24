@@ -73,4 +73,18 @@ class TintaViewModelTest {
         val words = text.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
         assertEquals(9, words)
     }
+
+    @Test
+    fun `test html to markdown formatting conversion`() {
+        val rawHtml = "<h1>Capítulo 1</h1><p>Texto con <b>negrita</b> y <i>cursiva</i></p>"
+        var clean = rawHtml.replace("(?i)<h1[^>]*>(.*?)</h1>".toRegex(), "\n# $1\n")
+        clean = clean.replace("(?i)<(b|strong)[^>]*>(.*?)</\\1>".toRegex(), "**$2**")
+        clean = clean.replace("(?i)<(i|em)[^>]*>(.*?)</\\1>".toRegex(), "*$2*")
+        clean = clean.replace("(?i)<p[^>]*>(.*?)</p>".toRegex(), "$1\n\n")
+        clean = clean.replace("<[^>]+>".toRegex(), "").trim()
+
+        assertTrue(clean.contains("# Capítulo 1"))
+        assertTrue(clean.contains("**negrita**"))
+        assertTrue(clean.contains("*cursiva*"))
+    }
 }

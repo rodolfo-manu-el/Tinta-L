@@ -231,6 +231,8 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
     private var initialSessionWords = -1
     private var timerJob: Job? = null
+    private var saveContentJob: Job? = null
+    private var lastSnapshotTime: Long = 0L
 
     private val _personajesTab = MutableStateFlow("fichas") // "fichas" or "mapa"
     val personajesTab: StateFlow<String> = _personajesTab.asStateFlow()
@@ -533,6 +535,19 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectChapter(chapterId: String) {
+        val previousChapterId = _activeChapterId.value
+        val previousContent = _chapterContent.value
+        val novelId = _selectedNovelId.value ?: _activeNovelId.value
+
+        // Cancel pending debounce save for previous chapter and execute immediate snapshot if needed
+        saveContentJob?.cancel()
+        if (previousChapterId.isNotBlank() && previousContent.isNotBlank() && novelId.isNotBlank()) {
+            viewModelScope.launch {
+                val words = previousContent.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+                repository.saveChapterContent(previousChapterId, previousContent, words, novelId)
+            }
+        }
+
         _activeChapterId.value = chapterId
         viewModelScope.launch {
             val chapter = repository.getChapterById(chapterId).firstOrNull()
@@ -591,6 +606,10 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Actualiza el borrador del capítulo en tiempo real con guardado diferido (debounced auto-save)
+     * y genera respaldos/snapshots automáticos de versión a intervalos regulares.
+     */
     fun updateChapterContent(newContent: String) {
         _chapterContent.value = newContent
         val words = newContent.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
@@ -604,11 +623,30 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         val chapterId = _activeChapterId.value
         val novelId = _selectedNovelId.value ?: _activeNovelId.value
         if (chapterId.isNotBlank() && novelId.isNotBlank()) {
-            viewModelScope.launch {
+            saveContentJob?.cancel()
+            saveContentJob = viewModelScope.launch {
                 _isSavingContent.value = true
+                delay(500L) // Debounce de 500ms para evitar escrituras excesivas en base de datos
                 repository.saveChapterContent(chapterId, newContent, words, novelId)
-                delay(300L) // Visual clarity for saving indicator
+                delay(200L)
                 _isSavingContent.value = false
+
+                // Snapshot automático de versión cada 5 minutos de escritura continua
+                val now = System.currentTimeMillis()
+                if (now - lastSnapshotTime > 5 * 60 * 1000L && newContent.isNotBlank()) {
+                    lastSnapshotTime = now
+                    val timeFormatted = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date(now))
+                    val autoVersion = ChapterVersion(
+                        chapterId = chapterId,
+                        novelId = novelId,
+                        timestamp = now,
+                        timeFormatted = timeFormatted,
+                        wordCount = words,
+                        content = newContent,
+                        note = "Respaldo automático"
+                    )
+                    repository.saveChapterVersion(autoVersion)
+                }
             }
         }
     }
@@ -1053,18 +1091,21 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
 
     /**
-     * Importa un documento local (.md o .docx) usando Storage Access Framework (SAF).
-     * Analiza el archivo para extraer el título y dividir capítulos según los encabezados.
+     * Importa un documento local (.md, .docx, .epub) usando Storage Access Framework (SAF).
+     * Analiza el archivo para extraer el título, dar formato enriquecido en Markdown y dividir capítulos según los encabezados.
      */
     fun importDocument(uri: Uri, context: Context) {
         viewModelScope.launch {
             try {
                 val contentResolver = context.contentResolver
                 val fileName = getFileNameFromUri(uri, contentResolver) ?: "documento_importado"
-                val rawText = if (fileName.endsWith(".docx", ignoreCase = true)) {
-                    extractTextFromDocx(uri, contentResolver)
-                } else {
-                    contentResolver.openInputStream(uri)?.use { stream ->
+                val isEpub = fileName.endsWith(".epub", ignoreCase = true)
+                val isDocx = fileName.endsWith(".docx", ignoreCase = true)
+
+                val rawText = when {
+                    isEpub -> extractContentFromEpub(uri, contentResolver)
+                    isDocx -> extractRichTextFromDocx(uri, contentResolver)
+                    else -> contentResolver.openInputStream(uri)?.use { stream ->
                         stream.bufferedReader().use { it.readText() }
                     } ?: ""
                 }
@@ -1163,7 +1204,11 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         return name ?: uri.path?.substringAfterLast('/')
     }
 
-    private fun extractTextFromDocx(uri: Uri, resolver: android.content.ContentResolver): String {
+    /**
+     * Extrae texto con formato enriquecido (Markdown) desde un archivo Word (.docx).
+     * Mantiene negritas (**), cursivas (*), y niveles de encabezado (# / ##).
+     */
+    private fun extractRichTextFromDocx(uri: Uri, resolver: android.content.ContentResolver): String {
         val textBuilder = StringBuilder()
         resolver.openInputStream(uri)?.use { inputStream ->
             java.util.zip.ZipInputStream(inputStream).use { zipStream ->
@@ -1174,12 +1219,68 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                         val builder = factory.newDocumentBuilder()
                         val doc = builder.parse(zipStream)
                         val paragraphs = doc.getElementsByTagName("w:p")
+
                         for (i in 0 until paragraphs.length) {
-                            val p = paragraphs.item(i)
-                            // Extract paragraph text content
-                            val pText = p.textContent
-                            if (pText.isNotBlank()) {
-                                textBuilder.append(pText).append("\n\n")
+                            val p = paragraphs.item(i) as org.w3c.dom.Element
+                            val pStyleNodes = p.getElementsByTagName("w:pStyle")
+                            var isHeading1 = false
+                            var isHeading2 = false
+
+                            if (pStyleNodes.length > 0) {
+                                val styleVal = (pStyleNodes.item(0) as org.w3c.dom.Element).getAttribute("w:val")
+                                if (styleVal.contains("Heading1", ignoreCase = true) || styleVal == "1" || styleVal.contains("Título1", ignoreCase = true)) {
+                                    isHeading1 = true
+                                } else if (styleVal.contains("Heading2", ignoreCase = true) || styleVal == "2" || styleVal.contains("Título2", ignoreCase = true)) {
+                                    isHeading2 = true
+                                }
+                            }
+
+                            val pTextBuilder = StringBuilder()
+                            if (isHeading1) pTextBuilder.append("# ")
+                            else if (isHeading2) pTextBuilder.append("## ")
+
+                            val runs = p.getElementsByTagName("w:r")
+                            for (rIndex in 0 until runs.length) {
+                                val r = runs.item(rIndex) as org.w3c.dom.Element
+                                val rPr = r.getElementsByTagName("w:rPr")
+
+                                var isBold = false
+                                var isItalic = false
+
+                                if (rPr.length > 0) {
+                                    val rPrElem = rPr.item(0) as org.w3c.dom.Element
+                                    val bNodes = rPrElem.getElementsByTagName("w:b")
+                                    if (bNodes.length > 0) {
+                                        val valAttr = (bNodes.item(0) as org.w3c.dom.Element).getAttribute("w:val")
+                                        isBold = valAttr != "false" && valAttr != "0"
+                                    }
+                                    val iNodes = rPrElem.getElementsByTagName("w:i")
+                                    if (iNodes.length > 0) {
+                                        val valAttr = (iNodes.item(0) as org.w3c.dom.Element).getAttribute("w:val")
+                                        isItalic = valAttr != "false" && valAttr != "0"
+                                    }
+                                }
+
+                                val tNodes = r.getElementsByTagName("w:t")
+                                val runTextBuilder = StringBuilder()
+                                for (tIndex in 0 until tNodes.length) {
+                                    runTextBuilder.append(tNodes.item(tIndex).textContent)
+                                }
+                                val rawRunText = runTextBuilder.toString()
+                                if (rawRunText.isNotBlank()) {
+                                    val formattedRun = when {
+                                        isBold && isItalic -> "***$rawRunText***"
+                                        isBold -> "**$rawRunText**"
+                                        isItalic -> "*$rawRunText*"
+                                        else -> rawRunText
+                                    }
+                                    pTextBuilder.append(formattedRun)
+                                }
+                            }
+
+                            val fullPText = pTextBuilder.toString().trim()
+                            if (fullPText.isNotBlank()) {
+                                textBuilder.append(fullPText).append("\n\n")
                             }
                         }
                         break
@@ -1193,7 +1294,84 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Exporta el manuscrito en PDF, Word (.docx) o Markdown (.md).
+     * Extrae el contenido completo y estructurado en Markdown desde un libro en formato EPUB (.epub).
+     */
+    private fun extractContentFromEpub(uri: Uri, resolver: android.content.ContentResolver): String {
+        val textBuilder = StringBuilder()
+        try {
+            val htmlEntries = mutableMapOf<String, String>()
+            resolver.openInputStream(uri)?.use { inputStream ->
+                java.util.zip.ZipInputStream(inputStream).use { zipStream ->
+                    var entry = zipStream.nextEntry
+                    while (entry != null) {
+                        val name = entry.name.lowercase(Locale.ROOT)
+                        if (name.endsWith(".xhtml") || name.endsWith(".html") || name.endsWith(".htm")) {
+                            val content = zipStream.bufferedReader().readText()
+                            htmlEntries[entry.name] = content
+                        }
+                        zipStream.closeEntry()
+                        entry = zipStream.nextEntry
+                    }
+                }
+            }
+
+            // Ordenar las entradas para mantener secuencia lógica de capítulos
+            val sortedKeys = htmlEntries.keys.sortedWith(Comparator { k1, k2 ->
+                val num1 = k1.replace("[^0-9]".toRegex(), "").toIntOrNull() ?: 0
+                val num2 = k2.replace("[^0-9]".toRegex(), "").toIntOrNull() ?: 0
+                if (num1 != num2) num1.compareTo(num2) else k1.compareTo(k2)
+            })
+
+            for (key in sortedKeys) {
+                val rawHtml = htmlEntries[key] ?: continue
+                val markdown = convertHtmlToMarkdown(rawHtml)
+                if (markdown.isNotBlank()) {
+                    textBuilder.append(markdown).append("\n\n")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return textBuilder.toString()
+    }
+
+    /**
+     * Convierte fragmentos de HTML / XHTML de EPUB a Markdown estructurado para el editor.
+     */
+    private fun convertHtmlToMarkdown(html: String): String {
+        var clean = html.replace("(?i)<script[\\s\\S]*?>[\\s\\S]*?</script>".toRegex(), "")
+            .replace("(?i)<style[\\s\\S]*?>[\\s\\S]*?</style>".toRegex(), "")
+
+        // Títulos
+        clean = clean.replace("(?i)<h1[^>]*>(.*?)</h1>".toRegex(), "\n# $1\n")
+        clean = clean.replace("(?i)<h2[^>]*>(.*?)</h2>".toRegex(), "\n## $1\n")
+        clean = clean.replace("(?i)<h3[^>]*>(.*?)</h3>".toRegex(), "\n### $1\n")
+
+        // Formato de texto
+        clean = clean.replace("(?i)<(b|strong)[^>]*>(.*?)</\\1>".toRegex(), "**$2**")
+        clean = clean.replace("(?i)<(i|em)[^>]*>(.*?)</\\1>".toRegex(), "*$2*")
+
+        // Párrafos y saltos de línea
+        clean = clean.replace("(?i)<p[^>]*>(.*?)</p>".toRegex(), "$1\n\n")
+        clean = clean.replace("(?i)<br\\s*/?>".toRegex(), "\n")
+
+        // Eliminar resto de etiquetas HTML
+        clean = clean.replace("<[^>]+>".toRegex(), "")
+
+        // Decodificar entidades HTML básicas
+        clean = clean.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+
+        // Limpiar líneas vacías excesivas
+        return clean.lines().map { it.trim() }.joinToString("\n").replace("\n{3,}".toRegex(), "\n\n").trim()
+    }
+
+    /**
+     * Exporta el manuscrito en PDF maquetado, EPUB (.epub), Word (.docx) o Markdown (.md).
      */
     fun exportManuscript(format: String, context: Context) {
         val novel = currentNovel.value ?: return
@@ -1203,23 +1381,25 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val fileName = "${novel.title.lowercase().replace("[^a-z0-9]".toRegex(), "_")}_manuscrito"
+        val fileName = "${novel.title.lowercase(Locale.ROOT).replace("[^a-z0-9]".toRegex(), "_")}_manuscrito"
 
         try {
             val exportDir = java.io.File(context.cacheDir, "exports")
             if (!exportDir.exists()) exportDir.mkdirs()
 
-            val extension = format.lowercase()
+            val extension = format.lowercase(Locale.ROOT)
             val exportFile = java.io.File(exportDir, "$fileName.$extension")
 
             when (extension) {
                 "pdf" -> generatePdfExport(novel, chapters, exportFile)
+                "epub" -> generateEpubExport(novel, chapters, exportFile)
                 "docx" -> generateDocxExport(novel, chapters, exportFile)
                 else -> generateMarkdownExport(novel, chapters, exportFile)
             }
 
             val mimeType = when (extension) {
                 "pdf" -> "application/pdf"
+                "epub" -> "application/epub+zip"
                 "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 else -> "text/markdown"
             }
@@ -1232,17 +1412,49 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                 type = mimeType
-                putExtra(android.content.Intent.EXTRA_SUBJECT, "${novel.title} - Manuscrito (${format.uppercase()})")
-                putExtra(android.content.Intent.EXTRA_TEXT, "Manuscrito de '${novel.title}' exportado en formato ${format.uppercase()} desde Tinta & Trama.")
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "${novel.title} - Manuscrito (${format.uppercase(Locale.ROOT)})")
+                putExtra(android.content.Intent.EXTRA_TEXT, "Manuscrito de '${novel.title}' exportado en formato ${format.uppercase(Locale.ROOT)} desde Tinta & Trama.")
                 putExtra(android.content.Intent.EXTRA_STREAM, uri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = android.content.Intent.createChooser(shareIntent, "Exportar manuscrito (${format.uppercase()})")
+            val chooser = android.content.Intent.createChooser(shareIntent, "Exportar manuscrito (${format.uppercase(Locale.ROOT)})")
             chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(chooser)
-            showToast("📄 Exportando manuscrito en ${format.uppercase()}")
+            showToast("📄 Exportando manuscrito en ${format.uppercase(Locale.ROOT)}")
         } catch (e: Exception) {
             showToast("Error al exportar: ${e.message}")
+        }
+    }
+
+    /**
+     * Guarda directamente el archivo exportado en una ubicación específica elegida por el usuario con SAF.
+     */
+    fun saveExportedFileDirectly(format: String, targetUri: Uri, context: Context) {
+        val novel = currentNovel.value ?: return
+        val chapters = activeChapters.value
+        if (chapters.isEmpty()) {
+            showToast("No hay capítulos que exportar")
+            return
+        }
+
+        try {
+            val extension = format.lowercase(Locale.ROOT)
+            val tempFile = java.io.File(context.cacheDir, "temp_export_${System.currentTimeMillis()}.$extension")
+
+            when (extension) {
+                "pdf" -> generatePdfExport(novel, chapters, tempFile)
+                "epub" -> generateEpubExport(novel, chapters, tempFile)
+                "docx" -> generateDocxExport(novel, chapters, tempFile)
+                else -> generateMarkdownExport(novel, chapters, tempFile)
+            }
+
+            context.contentResolver.openOutputStream(targetUri)?.use { output ->
+                tempFile.inputStream().use { input -> input.copyTo(output) }
+            }
+            tempFile.delete()
+            showToast("💾 Manuscrito guardado exitosamente en el almacenamiento elegido")
+        } catch (e: Exception) {
+            showToast("Error al guardar archivo: ${e.message}")
         }
     }
 
@@ -1263,58 +1475,209 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         outputFile.writeText(contentBuilder.toString())
     }
 
+    /**
+     * Genera un libro electrónico estándar en formato EPUB (.epub).
+     */
+    private fun generateEpubExport(novel: Novel, chapters: List<Chapter>, outputFile: java.io.File) {
+        java.io.FileOutputStream(outputFile).use { fos ->
+            java.util.zip.ZipOutputStream(fos).use { zos ->
+                // 1. mimetype (Sin compresión STORED como especifica el estándar EPUB)
+                val mimetypeBytes = "application/epub+zip".toByteArray(Charsets.US_ASCII)
+                val mimeEntry = java.util.zip.ZipEntry("mimetype").apply {
+                    method = java.util.zip.ZipEntry.STORED
+                    size = mimetypeBytes.size.toLong()
+                    compressedSize = mimetypeBytes.size.toLong()
+                    crc = java.util.zip.CRC32().apply { update(mimetypeBytes) }.value
+                }
+                zos.putNextEntry(mimeEntry)
+                zos.write(mimetypeBytes)
+                zos.closeEntry()
+
+                // 2. META-INF/container.xml
+                zos.putNextEntry(java.util.zip.ZipEntry("META-INF/container.xml"))
+                val containerXml = "<?xml version=\"1.0\"?>\n<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\n  <rootfiles>\n    <rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\"/>\n  </rootfiles>\n</container>"
+                zos.write(containerXml.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // 3. OEBPS/style.css
+                zos.putNextEntry(java.util.zip.ZipEntry("OEBPS/style.css"))
+                val styleCss = "body { font-family: serif; margin: 5%; line-height: 1.6; } h1, h2 { text-align: center; font-weight: bold; } p { text-indent: 1.5em; margin-bottom: 0.5em; }"
+                zos.write(styleCss.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // 4. OEBPS/title.xhtml
+                zos.putNextEntry(java.util.zip.ZipEntry("OEBPS/title.xhtml"))
+                val titleXhtml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>${escapeXml(novel.title)}</title><link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/></head>\n<body>\n  <div style=\"text-align: center; margin-top: 30%;\">\n    <h1>${escapeXml(novel.title)}</h1>\n    <h2>${escapeXml(novel.subtitle)}</h2>\n    <p><em>${escapeXml(novel.genre)}</em></p>\n    <p style=\"margin-top: 20%; font-size: 0.9em;\">Tinta &amp; Trama Atelier Literario</p>\n  </div>\n</body>\n</html>"
+                zos.write(titleXhtml.toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // 5. Capítulos XHTML
+                chapters.forEachIndexed { idx, ch ->
+                    zos.putNextEntry(java.util.zip.ZipEntry("OEBPS/chapter_${idx + 1}.xhtml"))
+                    val chHtml = StringBuilder()
+                    chHtml.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head><title>${escapeXml(ch.title)}</title><link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/></head>\n<body>\n")
+                    chHtml.append("<h2>Capítulo ").append(ch.number).append(": ").append(escapeXml(ch.title)).append("</h2>\n")
+
+                    val paragraphs = ch.content.split("\n")
+                    for (p in paragraphs) {
+                        if (p.isNotBlank()) {
+                            var formattedP = escapeXml(p)
+                            formattedP = formattedP.replace("\\*\\*([^*]+)\\*\\*".toRegex(), "<strong>$1</strong>")
+                            formattedP = formattedP.replace("\\*([^*]+)\\*".toRegex(), "<em>$1</em>")
+                            chHtml.append("<p>").append(formattedP).append("</p>\n")
+                        }
+                    }
+                    chHtml.append("</body>\n</html>")
+                    zos.write(chHtml.toString().toByteArray(Charsets.UTF_8))
+                    zos.closeEntry()
+                }
+
+                // 6. OEBPS/toc.ncx
+                zos.putNextEntry(java.util.zip.ZipEntry("OEBPS/toc.ncx"))
+                val ncx = StringBuilder()
+                ncx.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">\n<head><meta name=\"dtb:uid\" content=\"urn:uuid:${novel.id}\"/></head>\n<docTitle><text>${escapeXml(novel.title)}</text></docTitle>\n<navMap>\n")
+                ncx.append("<navPoint id=\"title\" playOrder=\"1\"><navLabel><text>Portada</text></navLabel><content src=\"title.xhtml\"/></navPoint>\n")
+                chapters.forEachIndexed { idx, ch ->
+                    ncx.append("<navPoint id=\"nav_${idx + 1}\" playOrder=\"${idx + 2}\"><navLabel><text>Capítulo ${ch.number}: ${escapeXml(ch.title)}</text></navLabel><content src=\"chapter_${idx + 1}.xhtml\"/></navPoint>\n")
+                }
+                ncx.append("</navMap>\n</ncx>")
+                zos.write(ncx.toString().toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+
+                // 7. OEBPS/content.opf
+                zos.putNextEntry(java.util.zip.ZipEntry("OEBPS/content.opf"))
+                val opf = StringBuilder()
+                opf.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"BookId\" version=\"2.0\">\n<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n")
+                opf.append("<dc:title>").append(escapeXml(novel.title)).append("</dc:title>\n")
+                opf.append("<dc:creator>Tinta &amp; Trama</dc:creator>\n")
+                opf.append("<dc:language>es</dc:language>\n")
+                opf.append("<dc:subject>").append(escapeXml(novel.genre)).append("</dc:subject>\n")
+                opf.append("</metadata>\n<manifest>\n")
+                opf.append("<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>\n")
+                opf.append("<item id=\"style\" href=\"style.css\" media-type=\"text/css\"/>\n")
+                opf.append("<item id=\"title\" href=\"title.xhtml\" media-type=\"application/xhtml+xml\"/>\n")
+                chapters.forEachIndexed { idx, _ ->
+                    opf.append("<item id=\"chapter_${idx + 1}\" href=\"chapter_${idx + 1}.xhtml\" media-type=\"application/xhtml+xml\"/>\n")
+                }
+                opf.append("</manifest>\n<spine toc=\"ncx\">\n")
+                opf.append("<itemref idref=\"title\"/>\n")
+                chapters.forEachIndexed { idx, _ ->
+                    opf.append("<itemref idref=\"chapter_${idx + 1}\"/>\n")
+                }
+                opf.append("</spine>\n</package>")
+                zos.write(opf.toString().toByteArray(Charsets.UTF_8))
+                zos.closeEntry()
+            }
+        }
+    }
+
+    /**
+     * Genera un PDF maquetado con portada personalizada y numeración de páginas ("Página X de Y").
+     */
     private fun generatePdfExport(novel: Novel, chapters: List<Chapter>, outputFile: java.io.File) {
         val pdfDocument = android.graphics.pdf.PdfDocument()
-        val pageWidth = 595 // A4 standard width
-        val pageHeight = 842 // A4 standard height
+        val pageWidth = 595 // Estándar A4 en puntos
+        val pageHeight = 842
 
         val titlePaint = android.graphics.Paint().apply {
             color = android.graphics.Color.BLACK
-            textSize = 24f
+            textSize = 28f
             isFakeBoldText = true
+            textAlign = android.graphics.Paint.Align.CENTER
         }
-        val headerPaint = android.graphics.Paint().apply {
+        val subtitlePaint = android.graphics.Paint().apply {
             color = android.graphics.Color.DKGRAY
             textSize = 16f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val headerPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 10f
+        }
+        val chapterHeaderPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.BLACK
+            textSize = 18f
             isFakeBoldText = true
         }
         val bodyPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.BLACK
             textSize = 12f
         }
+        val footerPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 10f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
 
         var pageNumber = 1
+
+        // --- PÁGINA 1: PORTADA MAQUETADA ---
         var pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
         var page = pdfDocument.startPage(pageInfo)
         var canvas = page.canvas
 
-        var y = 60f
+        // Intentar dibujar imagen de portada si está disponible
+        val customCoverFile = novel.customCoverPath?.let { java.io.File(it) }
+        var drawImageSuccess = false
+        if (customCoverFile != null && customCoverFile.exists()) {
+            try {
+                val coverBitmap = android.graphics.BitmapFactory.decodeFile(customCoverFile.absolutePath)
+                if (coverBitmap != null) {
+                    val coverWidth = 300
+                    val coverHeight = 450
+                    val coverLeft = (pageWidth - coverWidth) / 2f
+                    val coverTop = 120f
+                    val scaledCover = android.graphics.Bitmap.createScaledBitmap(coverBitmap, coverWidth, coverHeight, true)
+                    canvas.drawBitmap(scaledCover, coverLeft, coverTop, null)
+                    drawImageSuccess = true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        val titleY = if (drawImageSuccess) 610f else 300f
+        canvas.drawText(novel.title, pageWidth / 2f, titleY, titlePaint)
+        canvas.drawText(novel.subtitle.ifBlank { novel.genre }, pageWidth / 2f, titleY + 35f, subtitlePaint)
+        canvas.drawText("TINTA & TRAMA — ATELIER LITERARIO", pageWidth / 2f, pageHeight - 80f, footerPaint)
+        pdfDocument.finishPage(page)
+
+        // --- PÁGINAS DE CONTENIDO CON CABECERA Y NUMERACIÓN "PÁGINA X" ---
+        pageNumber++
+        pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
+        page = pdfDocument.startPage(pageInfo)
+        canvas = page.canvas
+
+        var y = 80f
         val margin = 50f
         val lineSpacing = 18f
 
-        // Title
-        canvas.drawText(novel.title, margin, y, titlePaint)
-        y += 30f
-        canvas.drawText(novel.subtitle, margin, y, headerPaint)
-        y += 40f
+        fun drawHeaderAndFooter(c: android.graphics.Canvas, pNum: Int, currentChTitle: String) {
+            c.drawText(novel.title.uppercase(Locale.ROOT) + " — " + currentChTitle, margin, 40f, headerPaint)
+            c.drawLine(margin, 46f, pageWidth - margin, 46f, headerPaint)
+            c.drawText("Página $pNum", pageWidth / 2f, pageHeight - 40f, footerPaint)
+        }
 
         for (ch in chapters) {
-            if (y > pageHeight - 100f) {
+            drawHeaderAndFooter(canvas, pageNumber, "Capítulo ${ch.number}")
+
+            if (y > pageHeight - 120f) {
                 pdfDocument.finishPage(page)
                 pageNumber++
                 pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
                 page = pdfDocument.startPage(pageInfo)
                 canvas = page.canvas
-                y = 60f
+                y = 80f
+                drawHeaderAndFooter(canvas, pageNumber, "Capítulo ${ch.number}")
             }
 
-            canvas.drawText("Capítulo ${ch.number}: ${ch.title}", margin, y, headerPaint)
-            y += 26f
+            canvas.drawText("Capítulo ${ch.number}: ${ch.title}", margin, y, chapterHeaderPaint)
+            y += 32f
 
             val lines = ch.content.lines()
             for (line in lines) {
                 if (line.isBlank()) {
-                    y += 10f
+                    y += 12f
                     continue
                 }
                 val words = line.split(" ")
@@ -1323,13 +1686,14 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     if (bodyPaint.measureText("$currentLine $word") < pageWidth - (margin * 2)) {
                         currentLine = if (currentLine.isEmpty()) word else "$currentLine $word"
                     } else {
-                        if (y > pageHeight - 60f) {
+                        if (y > pageHeight - 70f) {
                             pdfDocument.finishPage(page)
                             pageNumber++
                             pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
                             page = pdfDocument.startPage(pageInfo)
                             canvas = page.canvas
-                            y = 60f
+                            y = 80f
+                            drawHeaderAndFooter(canvas, pageNumber, "Capítulo ${ch.number}")
                         }
                         canvas.drawText(currentLine, margin, y, bodyPaint)
                         y += lineSpacing
@@ -1337,19 +1701,20 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 if (currentLine.isNotEmpty()) {
-                    if (y > pageHeight - 60f) {
+                    if (y > pageHeight - 70f) {
                         pdfDocument.finishPage(page)
                         pageNumber++
                         pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
                         page = pdfDocument.startPage(pageInfo)
                         canvas = page.canvas
-                        y = 60f
+                        y = 80f
+                        drawHeaderAndFooter(canvas, pageNumber, "Capítulo ${ch.number}")
                     }
                     canvas.drawText(currentLine, margin, y, bodyPaint)
                     y += lineSpacing
                 }
             }
-            y += 20f
+            y += 24f
         }
 
         pdfDocument.finishPage(page)

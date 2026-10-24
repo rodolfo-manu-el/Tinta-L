@@ -489,7 +489,7 @@ private fun SearchAndFilterBar(
         ) {
             Icon(
                 imageVector = Icons.Default.UploadFile,
-                contentDescription = "Importar documento (.md, .docx)",
+                contentDescription = "Importar documento (.md, .docx, .epub)",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )

@@ -75,6 +75,17 @@ fun ObraScreen(
     val context = LocalContext.current
 
     var showExportDialog by remember { mutableStateOf(false) }
+    var exportFormatForSaf by remember { mutableStateOf<String?>(null) }
+
+    val safSaveLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("*/*")
+    ) { uri: android.net.Uri? ->
+        val format = exportFormatForSaf
+        if (uri != null && format != null) {
+            viewModel.saveExportedFileDirectly(format, uri, context)
+        }
+        exportFormatForSaf = null
+    }
 
     Column(
         modifier = modifier
@@ -492,25 +503,40 @@ fun ObraScreen(
 
                         ExportFormatOption(
                             title = "📄 Documento PDF",
-                            subtitle = "Maquetación para impresión o lectura digital",
-                            onClick = {
+                            subtitle = "Maquetación con portada y numeración de páginas",
+                            onShare = {
                                 viewModel.exportManuscript("pdf", context)
+                                showExportDialog = false
+                            },
+                            onSaveSaf = {
+                                exportFormatForSaf = "pdf"
+                                safSaveLauncher.launch("${currentNovelState?.title?.lowercase()?.replace("[^a-z0-9]".toRegex(), "_") ?: "manuscrito"}.pdf")
                                 showExportDialog = false
                             }
                         )
                         ExportFormatOption(
                             title = "📖 Libro Electrónico EPUB",
                             subtitle = "Compatible con e-readers (Kindle, Kobo, Apple Books)",
-                            onClick = {
+                            onShare = {
                                 viewModel.exportManuscript("epub", context)
+                                showExportDialog = false
+                            },
+                            onSaveSaf = {
+                                exportFormatForSaf = "epub"
+                                safSaveLauncher.launch("${currentNovelState?.title?.lowercase()?.replace("[^a-z0-9]".toRegex(), "_") ?: "manuscrito"}.epub")
                                 showExportDialog = false
                             }
                         )
                         ExportFormatOption(
                             title = "📝 Texto Markdown (.md)",
                             subtitle = "Formato plano para respaldos y procesadores externos",
-                            onClick = {
+                            onShare = {
                                 viewModel.exportManuscript("md", context)
+                                showExportDialog = false
+                            },
+                            onSaveSaf = {
+                                exportFormatForSaf = "md"
+                                safSaveLauncher.launch("${currentNovelState?.title?.lowercase()?.replace("[^a-z0-9]".toRegex(), "_") ?: "manuscrito"}.md")
                                 showExportDialog = false
                             }
                         )
@@ -532,21 +558,38 @@ fun ObraScreen(
 private fun ExportFormatOption(
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onShare: () -> Unit,
+    onSaveSaf: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onShare,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Compartir", style = MaterialTheme.typography.labelSmall)
+                }
+                OutlinedButton(
+                    onClick = onSaveSaf,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Guardar en...", style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
 }
