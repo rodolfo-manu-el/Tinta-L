@@ -8,11 +8,14 @@ Tinta & Trama es una aplicación Android nativa desarrollada con Jetpack Compose
 
 ## 🚀 Características Principales
 
-- 📚 **Biblioteca de Manuscritos:** Gestión de obras con metas de palabras, seguimiento de avance e importación/exportación JSON.
-- 📖 **Estructura de la Obra (Trama):** Desglose por capítulos, organización temática y vistas resumidas del avance.
-- ✍️ **Editor Inmersivo (Escribir):** Espacio de escritura minimalista con modo Zen, estilos de papel/fuentes, notas al margen y contador de palabras en tiempo real.
-- 👤 **Elenco & Grafo de Personajes:** Fichas personalizadas de personajes con roles, alineaciones, motivaciones y visualización de relaciones/vínculos.
-- 🎨 **Recursos & Códice:** Tablero de notas rápidas, worldbuilding y banco de ideas.
+- 📚 **Biblioteca de Manuscritos:** Selector de vista (Lista Limpia y Cuadrícula de Libros), portadas personalizadas (2:3), filtrado inteligente y gestión limpia de acciones contextuales.
+- 📥 **Importación Multiformato:** Importa directamente archivos `.epub` (convirtiendo XHTML a Markdown), `.docx` (preservando negritas, cursivas y encabezados) y `.md` mediante Storage Access Framework (SAF).
+- 📤 **Exportación Editorial:** Exportación nativa y guardado directo con SAF a PDF maquetado (con portada y numeración de página), `.epub`, `.docx` y `.md`.
+- ✍️ **Atelier de Escritura & Editor WYSIWYG:** Guardado automático optimizado con debouncing (500ms), respaldos/snapshots de versión cada 5 minutos, estilos de papel (Pergamino, Rayado, Retícula, Blanco) y tipografías literarias.
+- 📖 **Modo Lectura 3D Flip-Book:** Lector a pantalla completa con efecto táctil 3D de curvatura y vuelta de página.
+- ⏱️ **Cronómetro Pomodoro Zen:** Temporizador de sesiones de escritura con indicador de palabras redactadas en tiempo real y sonido armónico de finalización (RingtoneManager/ToneGenerator).
+- 📌 **Mapa de Corcho Interactivo:** Tablero con chinchetas móviles para personajes e hilos de relación coloreados por tipo de vínculo.
+- 🗝️ **Códice & Worldbuilding:** Enciclopedia del universo con categorías (Lugares, Artefactos, Magia, Facciones) e inspiraciones de worldbuilding.
 - 🌙 **Diseño Adaptativo:** Modos Pergamino Claro y Noche Inmersiva con estética editorial.
 
 ---

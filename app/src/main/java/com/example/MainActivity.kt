@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.TintaTab
 import com.example.ui.TintaViewModel
-import com.example.ui.components.BackupDialog
 import com.example.ui.components.CreateItemModal
 import com.example.ui.components.TintaBottomBar
 import com.example.ui.components.TintaToast
@@ -57,8 +56,6 @@ class MainActivity : ComponentActivity() {
             val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
             val showCreateModal by viewModel.showCreateModal.collectAsStateWithLifecycle()
             val createType by viewModel.createType.collectAsStateWithLifecycle()
-            val showBackupDialog by viewModel.showBackupDialog.collectAsStateWithLifecycle()
-            val backupJsonString by viewModel.backupJsonString.collectAsStateWithLifecycle()
 
             // Handle system back navigation smoothly
             BackHandler(enabled = currentTab != TintaTab.BIBLIOTECA) {
@@ -145,13 +142,6 @@ class MainActivity : ComponentActivity() {
                                 onCreateNote = { cat, col, cont, scope ->
                                     viewModel.addMarginNote(cat, col, cont, scope)
                                 }
-                            )
-                        }
-
-                        if (showBackupDialog) {
-                            BackupDialog(
-                                jsonString = backupJsonString,
-                                onDismiss = { viewModel.closeBackupDialog() }
                             )
                         }
 

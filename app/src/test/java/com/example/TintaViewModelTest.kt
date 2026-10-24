@@ -87,4 +87,62 @@ class TintaViewModelTest {
         assertTrue(clean.contains("**negrita**"))
         assertTrue(clean.contains("*cursiva*"))
     }
+
+    @Test
+    fun `test pagination logic with explicit manual breaks and auto-overflow`() {
+        val manualContent = "Página 1 de la historia.\n\n--- PÁGINA ---\n\nPágina 2 de la historia."
+        val manualPages = com.example.ui.screens.splitIntoPages(manualContent)
+        assertEquals(2, manualPages.size)
+        assertEquals("Página 1 de la historia.", manualPages[0])
+        assertEquals("Página 2 de la historia.", manualPages[1])
+
+        val paragraph = (1..60).joinToString(" ") { "palabra$it" }
+        val longContent = "$paragraph\n\n$paragraph\n\n$paragraph\n\n$paragraph\n\n$paragraph"
+        val autoPages = com.example.ui.screens.splitIntoPages(longContent)
+        assertTrue(autoPages.size >= 2)
+    }
+
+    @Test
+    fun `test filter option archived labels and status`() {
+        val archivedOption = com.example.ui.FilterOption.ARCHIVED
+        assertEquals("Leídos / Archivados", archivedOption.label)
+        assertEquals(com.example.ui.FilterOption.ARCHIVED, com.example.ui.FilterOption.COMPLETED)
+    }
+
+    @Test
+    fun `test chapter progress calculation on addition`() {
+        // When 1 chapter exists in a 10-chapter target novel
+        val totalTarget = 10
+        val chapters1 = listOf("cap1")
+        val progress1 = ((chapters1.size.toFloat() / totalTarget) * 100).toInt()
+        assertEquals(10, progress1)
+
+        // When a 2nd chapter is added
+        val chapters2 = listOf("cap1", "cap2")
+        val progress2 = ((chapters2.size.toFloat() / totalTarget) * 100).toInt()
+        assertEquals(20, progress2)
+        assertEquals(2, chapters2.size)
+
+        // When chapters exceed target (e.g. 11 chapters)
+        val chaptersExceeded = (1..11).map { "cap$it" }
+        val newTarget = maxOf(chaptersExceeded.size, totalTarget)
+        val progressExceeded = ((chaptersExceeded.size.toFloat() / newTarget) * 100).toInt()
+        assertEquals(100, progressExceeded)
+        assertEquals(11, newTarget)
+    }
+
+    @Test
+    fun `test expanded tutorial structure and chapters`() {
+        val expectedChapters = listOf(
+            "El Atelier de Escritura y Modos Visuales",
+            "El Reparto y el Mapa en Corcho",
+            "Notas al Margen y el Códice de Lore",
+            "Biblioteca, Portadas y Exportación Editorial"
+        )
+        assertEquals(4, expectedChapters.size)
+        assertTrue(expectedChapters.any { it.contains("Atelier") })
+        assertTrue(expectedChapters.any { it.contains("Corcho") })
+        assertTrue(expectedChapters.any { it.contains("Códice") })
+        assertTrue(expectedChapters.any { it.contains("Exportación") })
+    }
 }

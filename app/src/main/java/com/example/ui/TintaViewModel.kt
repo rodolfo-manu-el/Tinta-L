@@ -3,6 +3,10 @@ package com.example.ui
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.media.RingtoneManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
@@ -14,6 +18,7 @@ import com.example.data.model.CodexEntry
 import com.example.data.model.MarginNote
 import com.example.data.model.Novel
 import com.example.data.model.Relationship
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -41,7 +46,11 @@ enum class TintaTab(val label: String, val iconName: String) {
 enum class FilterOption(val label: String) {
     ALL("Todos"),
     IN_PROGRESS("En progreso"),
-    COMPLETED("Terminadas")
+    ARCHIVED("Leídos / Archivados");
+
+    companion object {
+        val COMPLETED = ARCHIVED
+    }
 }
 
 class TintaViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,9 +107,9 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
             val matchesFilter = when (filter) {
                 FilterOption.ALL -> true
-                FilterOption.COMPLETED -> novel.status.equals("Terminada", ignoreCase = true) ||
+                FilterOption.ARCHIVED -> novel.isRead || novel.status.equals("Terminada", ignoreCase = true) ||
                     novel.status.equals("Revisión", ignoreCase = true)
-                FilterOption.IN_PROGRESS -> !novel.status.equals("Terminada", ignoreCase = true) &&
+                FilterOption.IN_PROGRESS -> !novel.isRead && !novel.status.equals("Terminada", ignoreCase = true) &&
                     !novel.status.equals("Revisión", ignoreCase = true)
             }
 
@@ -276,6 +285,12 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+        viewModelScope.launch {
+            val novels = repository.allNovels.firstOrNull() ?: emptyList()
+            novels.forEach { novel ->
+                repository.recalculateNovelMetrics(novel.id)
+            }
+        }
     }
 
     /**
@@ -287,26 +302,28 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
         val context = getApplication<Application>().applicationContext
         val prefs = context.getSharedPreferences("tinta_prefs", Context.MODE_PRIVATE)
         val isFirstRun = prefs.getBoolean("is_first_run", true)
+        val tutorialVersion = prefs.getInt("tutorial_version_key", 0)
+        val currentTargetVersion = 2 // Versión 2: Guía expandida con 4 capítulos y cobertura total
 
         viewModelScope.launch {
             val existingNovel = repository.getNovelById(tutorialId).firstOrNull()
-            if (isFirstRun || existingNovel == null) {
+            if (isFirstRun || existingNovel == null || tutorialVersion < currentTargetVersion) {
                 val tutorialNovel = Novel(
                     id = tutorialId,
                     title = "Bienvenido a Tinta",
-                    subtitle = "Tutorial interactivo para escritores",
+                    subtitle = "Guía interactiva para escritores",
                     genre = "Guía & Onboarding",
-                    tropes = "✨ Tutorial interactivo",
-                    wordCount = 450,
-                    targetWords = 500,
-                    completedChapters = 2,
-                    totalChapters = 2,
+                    tropes = "✨ Tutorial Maestro",
+                    wordCount = 1350,
+                    targetWords = 1500,
+                    completedChapters = 4,
+                    totalChapters = 4,
                     progressPercent = 100,
                     coverDrawableName = "cover_silencio",
                     status = "Tutorial",
                     lastEdited = "Ahora",
                     isFeatured = true,
-                    synopsis = "¡Hola escritor! Esta historia interactiva te guiará paso a paso por todas las herramientas de Tinta & Trama.",
+                    synopsis = "¡Hola escritor! Esta historia interactiva te guiará paso a paso por todas las herramientas de Tinta & Trama: Atelier de escritura, tipografías y papeles, fichas y mapa en corcho, códice de lore, temporizador zen y exportación multiformato.",
                     isTutorial = true
                 )
 
@@ -314,10 +331,47 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     id = "${tutorialId}_cap_1",
                     novelId = tutorialId,
                     number = 1,
-                    title = "El Atelier de Escritura",
+                    title = "El Atelier de Escritura y Modos Visuales",
                     actName = "Capítulo 1",
-                    content = "# Bienvenido a Tinta & Trama\n\nEste es tu **nuevo espacio de creación literaria**. Aquí podrás redactar tus manuscritos con formato enriquecido fluido, organizar capítulos y consultar notas al margen.\n\n### ✍️ ¿Cómo usar la barra de herramientas?\n- Usa los botones **B** y *I* para dar estilo a tus palabras.\n- Pulsa **H1** para añadir títulos a tus escenas.\n- Selecciona diferentes **estilos de papel** (Pergamino, Rayado, Retícula o Limpio) en la barra inferior.\n\n*Continúa leyendo en el Capítulo 2 para descubrir cómo gestionar tus portadas y exportar tus historias.*",
-                    wordCount = 100,
+                    content = """# ✍️ El Atelier de Escritura
+
+¡Te damos la bienvenida a **Tinta & Trama**, tu santuario de creación literaria! Este espacio ha sido diseñado meticulosamente para acompañarte desde la primera chispa de inspiración hasta la última corrección de tu manuscrito.
+
+---
+
+### 🎨 1. Barra de Herramientas y Formato Markdown
+Redacta con libertad tipográfica usando los controles rápidos situados en la barra superior:
+- **B (Negrita)**: Resalta giros dramáticos o nombres clave con `**texto**`.
+- ***I* (Cursiva)**: Expresa pensamientos internos o palabras extranjeras con `*texto*`.
+- **H1, H2, H3**: Estructura tus escenas, actos y subtítulos sin esfuerzo.
+- **Listas y Citas (`>`)**: Elabora listas de inventario o citas proféticas de tus personajes.
+- **Divisores (`---`)**: Separa cambios de punto de vista o saltos temporales.
+
+---
+
+### 📜 2. Modos de Papel y Tipografías Literarias
+En la barra inferior del editor puedes personalizar tu entorno según tu estado de ánimo:
+- **Estilos de Papel**: Alterna entre *Pergamino Clásico* (cálido y nostálgico), *Blanco Marfil*, *Rayado Tradicional*, *Cuadrícula de Diseño* o *Tinta Oscura* para sesiones nocturnas.
+- **Familias Tipográficas**: Elige entre fuentes *Serif Editorial* (Newsreader / Garamond), *Sans Moderna* (Inter), *Máquina de Escribir* (Courier) o estilo *Caligráfico*.
+
+---
+
+### 📖 3. Modo Lectura y Efecto de Vuelta de Página (3D Page Flip)
+¿Quieres sumergirte en tu obra como si fuera un libro impreso?
+- Toca el botón de **Pantalla Completa** en el editor.
+- La interfaz entrará en un modo de lectura puro e inmersivo.
+- ¡Al pasar de página o capítulo, disfrutarás de una **animación táctil de curvatura de página en 3D (curl effect)** que simula la vuelta de una página real de papel!
+
+---
+
+### ⏱️ 4. Temporizador Pomodoro con Campana Zen
+Supera el bloqueo creativo dividiendo tu tiempo en bloques de concentración:
+- Inicia el temporizador de 15, 25 o 45 minutos.
+- Observa en tiempo real las **palabras escritas en la sesión actual**.
+- Al completarse el tiempo, una **suave campana armónica zen** sonará para felicitarte y avisarte que es hora de descansar.
+
+*Pasa al Capítulo 2 para descubrir el Reparto de Personajes y el Tablero de Corcho interactivo.*""",
+                    wordCount = 380,
                     isFinished = true,
                     lastSynced = "Ahora"
                 )
@@ -326,10 +380,126 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                     id = "${tutorialId}_cap_2",
                     novelId = tutorialId,
                     number = 2,
-                    title = "Carátulas y Exportación SAF",
+                    title = "El Reparto y el Mapa en Corcho",
                     actName = "Capítulo 2",
-                    content = "# Gestión de Obras y Archivos\n\n### 🎨 Personaliza tus Portadas\nEn la pantalla **Obra**, simplemente toca la imagen de la portada para abrir la galería de tu teléfono con el Storage Access Framework (SAF), seleccionar tu imagen favorita y guardarla de forma segura.\n\n### 📄 Importación y Exportación\n- Puedes importar cualquier documento `.md` o `.docx` directamente desde tu dispositivo.\n- Al terminar tu historia, expórtala en formato **PDF**, **Word (.docx)** o **Markdown (.md)** de forma nativa.\n\n¡Disfruta escribiendo tu próximo gran manuscrito!",
-                    wordCount = 110,
+                    content = """# 🎭 Reparto de Personajes y Mapa en Corcho
+
+Una gran historia nace de las tensiones, lealtades y secretos entre sus personajes. En la pestaña **Personajes**, Tinta & Trama pone a tu disposición un sistema completo de desarrollo dramático.
+
+---
+
+### 📋 1. Fichas Biográficas Profundas
+Crea y edita perfiles completos para cada habitante de tu historia:
+- **Rol Narrativo**: Asigna arquetipos como *Protagonista*, *Deuteragonista*, *Antagonista*, *Mentor* o *Aliado*.
+- **Datos Fundamentales**: Edad, especie, facción de pertenencia y epíteto dramático.
+- **Habilidades & Motivación**: Describe su objetivo crucial, rasgos de personalidad y la chispa que lo impulsa a actuar.
+
+---
+
+### 📌 2. Tablero de Corcho Interactivo
+Cambia a la subpestaña **Mapa en Corcho**:
+- Cada personaje aparece como una **tarjeta sujeta con una chincheta de color** según su rol dramático.
+- **¡Arrastra libremente con el dedo!** Puedes mover las tarjetas por todo el tablero para agrupar facciones aliadas, colocar a los amantes cerca o alejar a los traidores.
+- Las posiciones se recuerdan automáticamente en tu obra.
+
+---
+
+### 🧵 3. Hilos de Tensión y Vínculos de Trama
+Toca **"Nuevo Vínculo"** para conectar a dos personajes:
+- **Tipos de Vínculo**: *Alianza Estratégica* (verde esmeralda), *Rivalidad / Conflicto Mortal* (rojo carmesí), *Pacto Secreto / Tensión* (dorado punteado), *Familia / Sangre* (celeste etéreo) y *Amor*.
+- **Hilos Dinámicos**: Los hilos se dibujan automáticamente en el lienzo entre las chinchetas de los personajes.
+- **Enfoque Táctil**: Toca la tarjeta de cualquier personaje en el corcho para **iluminar exclusivamente sus conexiones directas**, ocultando las demás para analizar su círculo de influencia.
+- **Gestión de Hilos**: Revisa el listado inferior para consultar las descripciones o eliminar vínculos obsoletos.
+
+*Avanza al Capítulo 3 para dominar las Notas al Margen y el Códice de Lore.*""",
+                    wordCount = 360,
+                    isFinished = true,
+                    lastSynced = "Ahora"
+                )
+
+                val cap3 = Chapter(
+                    id = "${tutorialId}_cap_3",
+                    novelId = tutorialId,
+                    number = 3,
+                    title = "Notas al Margen y el Códice de Lore",
+                    actName = "Capítulo 3",
+                    content = """# 🏛️ Notas al Margen y el Códice de Lore
+
+Los mundos ricos en detalles requieren orden. En Tinta & Trama nunca olvidarás una regla mágica ni un cabo suelto gracias a estas dos herramientas complementarias.
+
+---
+
+### 📝 1. Notas al Margen en el Editor
+Mientras redactas en el Atelier, abre el panel de **Notas al Margen**:
+- Escribe ideas espontáneas, recordatorios de revisión o flecos argumentales asociados a la escena actual.
+- Asigna **colores temáticos** (Urgente, Trama secundaria, Misterio por resolver).
+- Las notas flotan junto a tu texto para que no tengas que salir de tu concentración creativa.
+
+---
+
+### 🗝️ 2. El Códice del Mundo (Recursos)
+En la sección **Recursos**, construye la enciclopedia viva de tu universo:
+- **Categorías Estructuradas**: Documenta *Lugares*, *Artefactos Legendarios*, *Sistemas de Magia*, *Tecnología* y *Facciones*.
+- **Iconografía Distintiva**: Asigna iconos rápidos y etiquetas de lore para clasificar cada entrada.
+- **Búsqueda Instantánea**: Encuentra en un segundo el nombre de esa reliquia o reino sin detener la escritura.
+
+---
+
+### 🎯 3. Metas de Palabras y Progreso Real
+- Define un **objetivo global de palabras** para tu manuscrito (ej. 50,000 palabras) y una meta por capítulo.
+- El sistema calcula automáticamente el progreso porcentual y el ritmo de avance de cada sesión.
+
+*Pasa al Capítulo 4 para conocer las Portadas Personalizadas, la Biblioteca y la Exportación Editorial.*""",
+                    wordCount = 320,
+                    isFinished = true,
+                    lastSynced = "Ahora"
+                )
+
+                val cap4 = Chapter(
+                    id = "${tutorialId}_cap_4",
+                    novelId = tutorialId,
+                    number = 4,
+                    title = "Biblioteca, Portadas y Exportación Editorial",
+                    actName = "Capítulo 4",
+                    content = """# 📚 Biblioteca, Portadas SAF y Exportación
+
+Tu catálogo literario merece una presentación impecable tanto dentro de la app como cuando decidas compartirlo con el mundo.
+
+---
+
+### 🗂️ 1. Biblioteca y Gestión de Estados
+Organiza tus proyectos según su fase de desarrollo:
+- **Manuscritos en Progreso**: Obras activas en fase de redacción y pulido.
+- **Leídos / Archivados**: Cuando completes una historia, márcala como terminada y se trasladará automáticamente a este apartado, limpiando el banner superior de trabajo activo.
+- **Filtros Rápidos**: Busca al instante por título, género o estado desde la barra superior.
+
+---
+
+### 🎨 2. Portadas Personalizadas con Storage Access Framework (SAF)
+Haz que cada historia tenga tu propia identidad gráfica:
+- Ve a la pestaña **Obra**.
+- Toca sobre la portada actual para abrir el selector de fotos seguro de Android.
+- Elige cualquier ilustración o fotografía de tu galería personal. Se ajustará con la proporción clásica editorial 2:3 de forma nítida.
+
+---
+
+### 🚀 3. Exportación Editorial Multiformato
+Cuando tu obra esté lista para revisiones o imprenta:
+- **PDF de Imprenta**: Maquetado con márgenes simétricos, numeración de página y tipografía cuidada listo para imprimir o enviar a concursos.
+- **Documento Word (.docx)**: Archivo editable estándar para trabajar con correctores o redactores editoriales.
+- **Markdown (.md)**: Archivo de texto plano puro con frontmatter para archivado digital o plataformas web.
+
+---
+
+### 💾 4. Copias de Seguridad y Privacidad Total
+- **100% Offline y Seguro**: Tus manuscritos se almacenan de forma local y privada en tu dispositivo.
+- **Copia de Seguridad JSON**: Exporta un respaldo completo de tu biblioteca con personajes, vínculos y capítulos en un solo toque desde Ajustes.
+
+---
+
+### ✨ ¡Comienza tu Viaje!
+Ahora que conoces todos los rincones del Atelier, crea tu primera historia pulsando el botón **"+"** en la Biblioteca y deja que las palabras fluyan. ¡Feliz escritura!""",
+                    wordCount = 290,
                     isFinished = true,
                     lastSynced = "Ahora"
                 )
@@ -337,11 +507,15 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 repository.insertNovel(tutorialNovel)
                 repository.insertChapter(cap1)
                 repository.insertChapter(cap2)
-                prefs.edit().putBoolean("is_first_run", false).apply()
+                repository.insertChapter(cap3)
+                repository.insertChapter(cap4)
+                prefs.edit()
+                    .putBoolean("is_first_run", false)
+                    .putInt("tutorial_version_key", currentTargetVersion)
+                    .apply()
             }
 
             // Verificar si el tutorial ya tiene fichas de personajes y vínculos de corcho.
-            // Si están vacíos, se pueblan automáticamente para que la pestaña Personajes y Mapa en Corcho estén activos.
             val existingChars = repository.getCharactersForNovel(tutorialId).firstOrNull() ?: emptyList()
             if (existingChars.isEmpty()) {
                 seedTutorialCharactersAndRelationships(tutorialId)
@@ -745,9 +919,100 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (_timerSeconds.value <= 0) {
                 _isTimerRunning.value = false
+                playChimeSound()
                 showToast("⏰ ¡Sesión Pomodoro completada! Excelente avance.")
             }
         }
+    }
+
+    /**
+     * Emite un suave y melodioso sonido de campana zen / chime armónico al finalizar la sesión del cronómetro.
+     */
+    fun playChimeSound() {
+        viewModelScope.launch(Dispatchers.Default) {
+            var played = false
+            try {
+                val context = getApplication<Application>().applicationContext
+                val notificationUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                val ringtone = RingtoneManager.getRingtone(context, notificationUri)
+                if (ringtone != null) {
+                    ringtone.play()
+                    played = true
+                }
+            } catch (_: Throwable) {}
+
+            if (!played) {
+                try {
+                    val toneGen = android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 100)
+                    toneGen.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, 350)
+                    played = true
+                } catch (_: Throwable) {}
+            }
+
+            if (!played) {
+                playAudioTrackChime()
+            }
+        }
+    }
+
+    private suspend fun playAudioTrackChime() {
+        try {
+            val sampleRate = 44100
+            val durationMs = 1200
+            val numSamples = (sampleRate * (durationMs / 1000.0)).toInt()
+            val buffer = ShortArray(numSamples)
+
+            val notes = listOf(
+                Triple(0, 523.25, 0.65),     // C5
+                Triple(180, 659.25, 0.70),   // E5
+                Triple(360, 783.99, 0.75),   // G5
+                Triple(540, 1046.50, 0.85)   // C6
+            )
+
+            for (i in 0 until numSamples) {
+                val tMs = (i * 1000.0) / sampleRate
+                var sample = 0.0
+                for ((startMs, freq, amp) in notes) {
+                    if (tMs >= startMs) {
+                        val dt = (tMs - startMs) / 1000.0
+                        val decay = kotlin.math.exp(-3.8 * dt)
+                        val wave = kotlin.math.sin(2.0 * Math.PI * freq * dt) +
+                                0.25 * kotlin.math.sin(4.0 * Math.PI * freq * dt)
+                        sample += wave * decay * amp
+                    }
+                }
+                val clamped = sample.coerceIn(-1.0, 1.0)
+                buffer[i] = (clamped * Short.MAX_VALUE * 0.75).toInt().toShort()
+            }
+
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
+            val audioFormat = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(sampleRate)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build()
+
+            val audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(audioAttributes)
+                .setAudioFormat(audioFormat)
+                .setBufferSizeInBytes(buffer.size * 2)
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+
+            audioTrack.write(buffer, 0, buffer.size)
+            audioTrack.play()
+
+            delay(durationMs.toLong() + 200L)
+            try {
+                audioTrack.stop()
+                audioTrack.release()
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
     }
 
     fun pauseTimer() {
@@ -865,9 +1130,9 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
                 tropes = "✨ Nuevo manuscrito",
                 wordCount = 0,
                 targetWords = targetWords,
-                completedChapters = 0,
+                completedChapters = 1,
                 totalChapters = 10,
-                progressPercent = 0,
+                progressPercent = 10,
                 coverDrawableName = "cover_silencio",
                 status = "Borrador inicial",
                 lastEdited = "Ahora",
@@ -908,6 +1173,13 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
             )
             repository.insertRelationship(rel)
             showToast("Vínculo entre $fromChar y $toChar registrado")
+        }
+    }
+
+    fun deleteRelationship(relationshipId: Long) {
+        viewModelScope.launch {
+            repository.deleteRelationship(relationshipId)
+            showToast("Vínculo eliminado")
         }
     }
 
@@ -1010,20 +1282,40 @@ class TintaViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Alterna el estado de leído/pendiente de una historia.
-     * Las historias leídas se desplazan a segundo plano / debajo de las no leídas.
+     * Al marcar como leída, actualiza de forma automática y explícita el estado a "Terminada"
+     * para retirarla inmediatamente de "Manuscritos en curso" y enviarla a "Leídos / Archivados".
      */
     fun toggleNovelRead(novelId: String) {
         viewModelScope.launch {
             val novel = repository.getNovelById(novelId).firstOrNull() ?: return@launch
             val newReadState = !novel.isRead
-            val updatedNovel = novel.copy(isRead = newReadState)
+            val newStatus = if (newReadState) "Terminada" else "En progreso"
+            val updatedNovel = novel.copy(
+                isRead = newReadState,
+                status = newStatus
+            )
             repository.insertNovel(updatedNovel)
             if (newReadState) {
-                showToast("\"${novel.title}\" marcada como leída (en segundo plano)")
+                showToast("\"${novel.title}\" finalizada y movida a 'Leídos / Archivados'")
             } else {
-                showToast("\"${novel.title}\" marcada como pendiente de lectura")
+                showToast("\"${novel.title}\" reactivada como manuscrito en curso")
             }
         }
+    }
+
+    /**
+     * Añade un salto de página formal en el manuscrito para la paginación del libro.
+     */
+    fun insertPageBreak(cursorPos: Int = -1) {
+        val currentText = _chapterContent.value
+        val marker = "\n\n--- PÁGINA ---\n\n"
+        val newText = if (cursorPos in 0..currentText.length) {
+            currentText.substring(0, cursorPos) + marker + currentText.substring(cursorPos)
+        } else {
+            if (currentText.isBlank()) "" else currentText + marker
+        }
+        updateChapterContent(newText)
+        showToast("📄 Nueva página añadida al manuscrito")
     }
 
     /**

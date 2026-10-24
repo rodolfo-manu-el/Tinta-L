@@ -51,19 +51,37 @@ class TintaRepository(private val database: AppDatabase) {
     fun getRelationshipsForNovel(novelId: String): Flow<List<Relationship>> =
         database.relationshipDao().getRelationshipsForNovel(novelId)
 
+    suspend fun recalculateNovelMetrics(novelId: String) {
+        val novel = database.novelDao().getNovelById(novelId).firstOrNull() ?: return
+        val chapters = database.chapterDao().getChaptersByNovel(novelId).firstOrNull() ?: emptyList()
+        val totalWords = chapters.sumOf { it.wordCount }
+        val chapterCount = chapters.size
+        val totalTarget = if (novel.totalChapters > 0) maxOf(chapterCount, novel.totalChapters) else maxOf(1, chapterCount)
+        val progress = if (totalTarget > 0) {
+            ((chapterCount.toFloat() / totalTarget) * 100).toInt().coerceIn(0, 100)
+        } else 0
+
+        database.novelDao().updateNovelMetrics(
+            id = novelId,
+            wordCount = totalWords,
+            completedChapters = chapterCount,
+            totalChapters = totalTarget,
+            progress = progress
+        )
+    }
+
     suspend fun saveChapterContent(chapterId: String, content: String, wordCount: Int, novelId: String) {
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
         database.chapterDao().updateChapterContent(chapterId, content, wordCount, currentTime)
-        
-        val chapters = database.chapterDao().getChaptersByNovel(novelId).firstOrNull() ?: emptyList()
-        val totalWords = chapters.sumOf { if (it.id == chapterId) wordCount else it.wordCount }
-        val completed = chapters.count { it.isFinished }
-        val progress = if (chapters.isNotEmpty()) ((completed.toFloat() / chapters.size) * 100).toInt() else 0
-        database.novelDao().updateNovelMetrics(novelId, totalWords, progress)
+        recalculateNovelMetrics(novelId)
     }
 
     suspend fun toggleChapterStatus(chapterId: String, isFinished: Boolean) {
         database.chapterDao().updateChapterStatus(chapterId, isFinished)
+        val chapter = database.chapterDao().getChapterById(chapterId).firstOrNull()
+        chapter?.novelId?.let { novelId ->
+            recalculateNovelMetrics(novelId)
+        }
     }
 
     suspend fun addMarginNote(note: MarginNote) {
@@ -80,6 +98,7 @@ class TintaRepository(private val database: AppDatabase) {
 
     suspend fun insertChapter(chapter: Chapter) {
         database.chapterDao().insertChapter(chapter)
+        recalculateNovelMetrics(chapter.novelId)
     }
 
     suspend fun insertCharacter(character: CharacterEntity) {
@@ -88,6 +107,10 @@ class TintaRepository(private val database: AppDatabase) {
 
     suspend fun insertRelationship(relationship: Relationship) {
         database.relationshipDao().insertRelationship(relationship)
+    }
+
+    suspend fun deleteRelationship(id: Long) {
+        database.relationshipDao().deleteRelationshipById(id)
     }
 
     suspend fun toggleNovelRead(novelId: String, isRead: Boolean) {

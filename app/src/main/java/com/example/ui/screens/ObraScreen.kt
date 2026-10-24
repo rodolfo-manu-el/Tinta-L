@@ -304,6 +304,12 @@ fun ObraScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    val displayChapters = if (activeChapters.isNotEmpty()) activeChapters.size else currentNovel.completedChapters
+                    val displayTotalChapters = maxOf(displayChapters, if (currentNovel.totalChapters > 0) currentNovel.totalChapters else displayChapters)
+                    val displayProgress = if (displayTotalChapters > 0) {
+                        ((displayChapters.toFloat() / displayTotalChapters) * 100).toInt().coerceIn(0, 100)
+                    } else currentNovel.progressPercent
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -325,15 +331,16 @@ fun ObraScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+
                         Text(
-                            text = "${currentNovel.progressPercent}%",
+                            text = "$displayProgress%",
                             style = MaterialTheme.typography.headlineSmall,
                             color = MaterialTheme.colorScheme.secondary
                         )
                     }
 
                     LinearProgressIndicator(
-                        progress = { currentNovel.progressPercent / 100f },
+                        progress = { displayProgress / 100f },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(8.dp)
@@ -349,7 +356,7 @@ fun ObraScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         MetricBox(
-                            value = "${currentNovel.completedChapters} / ${currentNovel.totalChapters}",
+                            value = "$displayChapters / $displayTotalChapters",
                             label = "CAPÍTULOS",
                             modifier = Modifier.weight(1f)
                         )

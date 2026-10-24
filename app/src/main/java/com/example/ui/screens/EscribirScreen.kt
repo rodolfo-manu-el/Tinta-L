@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,9 +42,23 @@ import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.PostAdd
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -111,6 +126,7 @@ fun EscribirScreen(
     val activeChapters by viewModel.activeChapters.collectAsStateWithLifecycle()
     val activeChapterId by viewModel.activeChapterId.collectAsStateWithLifecycle()
     val chapterContent by viewModel.chapterContent.collectAsStateWithLifecycle()
+    val chapterWordCount by viewModel.chapterWordCount.collectAsStateWithLifecycle()
     val isFinished by viewModel.isChapterFinished.collectAsStateWithLifecycle()
     val chapterStatus by viewModel.chapterStatus.collectAsStateWithLifecycle()
     val isSavingContent by viewModel.isSavingContent.collectAsStateWithLifecycle()
@@ -142,6 +158,7 @@ fun EscribirScreen(
     var isChapterDropdownExpanded by remember { mutableStateOf(false) }
     var isStatusDropdownExpanded by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
+    var isFullscreenReader by remember { mutableStateOf(false) }
 
     val currentChapter = activeChapters.find { it.id == activeChapterId }
     val currentChapterIndex = activeChapters.indexOfFirst { it.id == activeChapterId }
@@ -449,139 +466,99 @@ fun EscribirScreen(
                         }
                     }
 
-                    // Chapter Status Dropdown & Dynamic Save Indicator
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Chapter Status Selector Dropdown
-                        Box {
-                            val statusBgColor = when (chapterStatus) {
-                                "Terminado" -> Color(0xFF10B981).copy(alpha = 0.15f)
-                                "En Revisión" -> Color(0xFF3B82F6).copy(alpha = 0.15f)
-                                else -> MaterialTheme.colorScheme.surfaceContainerHigh
-                            }
-                            val statusTextColor = when (chapterStatus) {
-                                "Terminado" -> Color(0xFF10B981)
-                                "En Revisión" -> Color(0xFF3B82F6)
-                                else -> textMuted
-                            }
+                    // Chapter Status Selector Dropdown
+                    Box {
+                        val statusBgColor = when (chapterStatus) {
+                            "Terminado" -> Color(0xFF10B981).copy(alpha = 0.15f)
+                            "En Revisión" -> Color(0xFF3B82F6).copy(alpha = 0.15f)
+                            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                        }
+                        val statusTextColor = when (chapterStatus) {
+                            "Terminado" -> Color(0xFF10B981)
+                            "En Revisión" -> Color(0xFF3B82F6)
+                            else -> textMuted
+                        }
 
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = statusBgColor,
-                                border = BorderStroke(1.dp, statusTextColor.copy(alpha = 0.4f)),
-                                modifier = Modifier.clickable { isStatusDropdownExpanded = true }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = statusBgColor,
+                            border = BorderStroke(1.dp, statusTextColor.copy(alpha = 0.4f)),
+                            modifier = Modifier.clickable { isStatusDropdownExpanded = true }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    val statusLabel = when (chapterStatus) {
-                                        "Terminado" -> "✓ Terminado"
-                                        "En Revisión" -> "🔍 En Revisión"
-                                        else -> "📝 Borrador"
-                                    }
-                                    Text(
-                                        text = statusLabel,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                        color = statusTextColor,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Cambiar estado",
-                                        tint = statusTextColor,
-                                        modifier = Modifier.size(12.dp)
-                                    )
+                                val statusLabel = when (chapterStatus) {
+                                    "Terminado" -> "✓ Terminado"
+                                    "En Revisión" -> "🔍 En Revisión"
+                                    else -> "📝 Borrador"
                                 }
-                            }
-
-                            DropdownMenu(
-                                expanded = isStatusDropdownExpanded,
-                                onDismissRequest = { isStatusDropdownExpanded = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(imageVector = Icons.Default.Edit, contentDescription = null, tint = textMuted, modifier = Modifier.size(14.dp))
-                                            Text("Borrador", color = textPrimary)
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setChapterStatus("Borrador")
-                                        isStatusDropdownExpanded = false
-                                    }
+                                Text(
+                                    text = statusLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = statusTextColor,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(14.dp))
-                                            Text("En Revisión", color = Color(0xFF3B82F6), fontWeight = FontWeight.Medium)
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setChapterStatus("En Revisión")
-                                        isStatusDropdownExpanded = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
-                                            Text("Terminado", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.setChapterStatus("Terminado")
-                                        isStatusDropdownExpanded = false
-                                    }
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Cambiar estado",
+                                    tint = statusTextColor,
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
 
-                        // Dynamic Auto-Save State Indicator
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        DropdownMenu(
+                            expanded = isStatusDropdownExpanded,
+                            onDismissRequest = { isStatusDropdownExpanded = false }
                         ) {
-                            if (isSavingContent) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = null,
-                                    tint = TintaAccent,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = "Guardando...",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    color = TintaAccent,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color(0xFF10B981),
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = "Guardado en local",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    color = Color(0xFF10B981),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Edit, contentDescription = null, tint = textMuted, modifier = Modifier.size(14.dp))
+                                        Text("Borrador", color = textPrimary)
+                                    }
+                                },
+                                onClick = {
+                                    viewModel.setChapterStatus("Borrador")
+                                    isStatusDropdownExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(14.dp))
+                                        Text("En Revisión", color = Color(0xFF3B82F6), fontWeight = FontWeight.Medium)
+                                    }
+                                },
+                                onClick = {
+                                    viewModel.setChapterStatus("En Revisión")
+                                    isStatusDropdownExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(14.dp))
+                                        Text("Terminado", color = Color(0xFF10B981), fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                onClick = {
+                                    viewModel.setChapterStatus("Terminado")
+                                    isStatusDropdownExpanded = false
+                                }
+                            )
                         }
                     }
                 }
@@ -714,18 +691,26 @@ fun EscribirScreen(
                                     .testTag("editable_manuscript_text")
                             )
 
-                            // Page Watermark
-                            Box(
+                            // Page & Story Counter Watermark dinámico
+                            val currentPages = remember(chapterContent) { splitIntoPages(chapterContent) }
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 8.dp),
-                                contentAlignment = Alignment.BottomEnd
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "PÁG. 1 · TINTA & TRAMA",
+                                    text = "$chapterWordCount palabras · ${currentPages.size} ${if (currentPages.size == 1) "página" else "páginas"}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                    color = textMuted.copy(alpha = 0.6f),
-                                    letterSpacing = 1.2.sp
+                                    color = textMuted.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = "PÁG. 1 DE ${currentPages.size} · TINTA & TRAMA",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = textMuted.copy(alpha = 0.8f),
+                                    letterSpacing = 1.2.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -828,29 +813,24 @@ fun EscribirScreen(
                     // Divider
                     Box(modifier = Modifier.height(20.dp).width(1.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
 
-                    // Assistant Group
+                    // Acciones de Pantalla Completa & Paginación (Botón Musas eliminado)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        // Musas Creative Craft Assist
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = TintaAccent.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, TintaAccent.copy(alpha = 0.4f)),
-                            modifier = Modifier
-                                .height(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    viewModel.showToast("✨ Musas: 'Prueba cambiar el ritmo de la frase introduciendo una metáfora sensorial'")
-                                }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            ) {
-                                Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, tint = TintaAccent, modifier = Modifier.size(14.dp))
-                                Text("Musas", style = MaterialTheme.typography.labelSmall, color = TintaAccent, fontWeight = FontWeight.Bold)
+                        FormatIconButton(
+                            icon = Icons.Default.PostAdd,
+                            contentDescription = "Añadir página",
+                            modifier = Modifier.testTag("add_page_button"),
+                            onClick = {
+                                viewModel.insertPageBreak(tfv.selection.start)
                             }
-                        }
+                        )
+                        FormatIconButton(
+                            icon = Icons.Default.Fullscreen,
+                            contentDescription = "Pantalla completa",
+                            modifier = Modifier.testTag("fullscreen_button"),
+                            onClick = {
+                                isFullscreenReader = true
+                            }
+                        )
                     }
                 }
             }
@@ -868,7 +848,23 @@ fun EscribirScreen(
                 onSelectDuration = { minutes ->
                     viewModel.setTimerDuration(minutes)
                     showTimerDialog = false
-                }
+                },
+                onTestSound = { viewModel.playChimeSound() }
+            )
+        }
+
+        // Modo Lectura en Pantalla Completa con Flip Book 3D
+        if (isFullscreenReader && currentNovel != null && currentChapter != null) {
+            val pages = remember(chapterContent) { splitIntoPages(chapterContent) }
+            FullscreenFlipBookReader(
+                novelTitle = currentNovel!!.title,
+                chapter = currentChapter,
+                allChapters = activeChapters,
+                pages = pages,
+                selectedFont = selectedFont,
+                isDarkTheme = isDark,
+                onClose = { isFullscreenReader = false },
+                onSelectChapter = { chapterId -> viewModel.selectChapter(chapterId) }
             )
         }
     }
@@ -879,7 +875,8 @@ private fun PomodoroTimerDialog(
     initialMinutes: Int,
     onDismiss: () -> Unit,
     onReset: () -> Unit,
-    onSelectDuration: (Int) -> Unit
+    onSelectDuration: (Int) -> Unit,
+    onTestSound: () -> Unit
 ) {
     var customMinutesInput by remember { mutableStateOf("") }
 
@@ -954,6 +951,53 @@ private fun PomodoroTimerDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = TintaAccent)
                     ) {
                         Text("Aplicar")
+                    }
+                }
+
+                // Sound indication banner
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeUp,
+                                contentDescription = null,
+                                tint = TintaAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Sonido de finalización",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Campana zen armónica al terminar",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = onTestSound,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Probar", color = TintaAccent, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
@@ -1046,13 +1090,15 @@ private fun FormatToolButton(
 @Composable
 private fun FormatIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null,
     onClick: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-        modifier = Modifier
+        modifier = modifier
             .size(32.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable { onClick() }
@@ -1060,7 +1106,7 @@ private fun FormatIconButton(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = icon,
-                contentDescription = null,
+                contentDescription = contentDescription,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(14.dp)
             )
@@ -1153,6 +1199,373 @@ private fun SectionMarginNotes(
                         style = MaterialTheme.typography.bodyMedium,
                         color = textPrimary
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Divide el texto del capítulo en páginas para el flujo editorial del lector y vista previa.
+ * Reconoce saltos de página explícitos ('--- PÁGINA ---') o calcula el desbordamiento de texto (~240 palabras por página).
+ */
+fun splitIntoPages(content: String): List<String> {
+    if (content.isBlank()) return listOf("")
+
+    val manualPageRegex = Regex("""\r?\n\s*---\s*(?:PÁGINA|PAGINA|PAGE)(?:\s+\d+)?\s*---\s*\r?\n""", RegexOption.IGNORE_CASE)
+    if (manualPageRegex.containsMatchIn(content)) {
+        val parts = content.split(manualPageRegex).map { it.trim() }
+        val nonBlank = parts.filter { it.isNotBlank() }
+        return if (nonBlank.isEmpty()) listOf("") else nonBlank
+    }
+
+    // Paginación automática basada en volumen de texto (~240 palabras por página)
+    val paragraphs = content.split(Regex("\r?\n\r?\n"))
+    val pages = mutableListOf<String>()
+    val currentPage = StringBuilder()
+    var currentWords = 0
+
+    for (p in paragraphs) {
+        val pWords = p.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+        if (currentWords + pWords > 240 && currentPage.isNotBlank()) {
+            pages.add(currentPage.toString().trim())
+            currentPage.clear()
+            currentWords = 0
+        }
+        if (currentPage.isNotEmpty()) {
+            currentPage.append("\n\n")
+        }
+        currentPage.append(p)
+        currentWords += pWords
+    }
+
+    if (currentPage.isNotBlank()) {
+        pages.add(currentPage.toString().trim())
+    }
+
+    return if (pages.isEmpty()) listOf("") else pages
+}
+
+/**
+ * Modo Lectura en Pantalla Completa con transición 3D tipo Flip-Book / Curl de libro real.
+ */
+@Composable
+fun FullscreenFlipBookReader(
+    novelTitle: String,
+    chapter: com.example.data.model.Chapter,
+    allChapters: List<com.example.data.model.Chapter>,
+    pages: List<String>,
+    selectedFont: String,
+    isDarkTheme: Boolean,
+    onClose: () -> Unit,
+    onSelectChapter: (String) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val pagerState = rememberPagerState(pageCount = { pages.size })
+    var readerFontSize by remember { mutableStateOf(18f) }
+    var paperTone by remember { mutableStateOf("parchment") }
+
+    val currentChapterIndex = allChapters.indexOfFirst { it.id == chapter.id }
+    val hasPrevChapter = currentChapterIndex > 0
+    val hasNextChapter = currentChapterIndex in 0 until (allChapters.size - 1)
+
+    val (pageBgColor, pageTextColor, readerSurfaceBg) = when (paperTone) {
+        "white" -> Triple(Color(0xFFFFFFFF), Color(0xFF1E293B), Color(0xFF0F172A))
+        "cream" -> Triple(Color(0xFFFBF0D9), Color(0xFF292524), Color(0xFF1C1917))
+        "dark" -> Triple(Color(0xFF262626), Color(0xFFF5F5F5), Color(0xFF121212))
+        else -> Triple(Color(0xFFFDF6E2), Color(0xFF2D241E), Color(0xFF1A1816))
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = readerSurfaceBg
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Barra Superior de Controles del Lector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.35f))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "Salir de pantalla completa",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = novelTitle.uppercase(),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = TintaAccent,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.4.sp
+                        )
+                        Text(
+                            text = "Cap. ${chapter.number}: ${chapter.title}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    // Ajustes de Lectura (Tamaño y Tono)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                readerFontSize = if (readerFontSize >= 22f) 16f else readerFontSize + 2f
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                        ) {
+                            Text(
+                                text = "A±",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                paperTone = when (paperTone) {
+                                    "parchment" -> "cream"
+                                    "cream" -> "white"
+                                    "white" -> "dark"
+                                    else -> "parchment"
+                                }
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.35f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoStories,
+                                contentDescription = "Tono de papel",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Lienzo 3D del Libro con Efecto Flip Book
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp)
+                    ) { pageIndex ->
+                        val pageOffset = (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
+                        val pageText = pages.getOrElse(pageIndex) { "" }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    cameraDistance = 16f * density
+                                    val rotation = (pageOffset * 90f).coerceIn(-90f, 90f)
+                                    if (pageOffset < 0f) {
+                                        // Pasa hacia la izquierda - pivote en el lomo izquierdo
+                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                        rotationY = rotation
+                                    } else if (pageOffset > 0f) {
+                                        // Viene desde la derecha - pivote en borde derecho
+                                        transformOrigin = TransformOrigin(1f, 0.5f)
+                                        rotationY = rotation
+                                    }
+                                }
+                                .shadow(12.dp, RoundedCornerShape(14.dp))
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(pageBgColor)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 24.dp, vertical = 22.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                // Encabezado editorial de la página
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = novelTitle.uppercase(),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = pageTextColor.copy(alpha = 0.55f),
+                                        letterSpacing = 1.2.sp
+                                    )
+                                    Text(
+                                        text = "CAPÍTULO ${chapter.number}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = pageTextColor.copy(alpha = 0.55f),
+                                        letterSpacing = 1.2.sp
+                                    )
+                                }
+
+                                // Contenido de la página
+                                Text(
+                                    text = pageText.ifBlank { "Página en blanco" },
+                                    style = TextStyle(
+                                        fontFamily = if (selectedFont == "Newsreader") NewsreaderFontFamily else PlusJakartaSansFontFamily,
+                                        fontSize = readerFontSize.sp,
+                                        lineHeight = (readerFontSize * 1.6f).sp,
+                                        color = pageTextColor
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                // Pie de página editorial con paginación
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = chapter.title,
+                                        style = TextStyle(
+                                            fontStyle = FontStyle.Italic,
+                                            fontSize = 11.sp,
+                                            color = pageTextColor.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                    Text(
+                                        text = "Página ${pageIndex + 1} de ${pages.size}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                        fontWeight = FontWeight.Bold,
+                                        color = pageTextColor.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+
+                            // Sombra táctil del lomo del libro
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .width(22.dp)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(Color.Black.copy(alpha = 0.16f), Color.Transparent)
+                                        )
+                                    )
+                                    .align(Alignment.CenterStart)
+                            )
+                        }
+                    }
+                }
+
+                // Barra Inferior de Navegación de Páginas
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (pagerState.currentPage > 0) {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                                    }
+                                } else if (hasPrevChapter) {
+                                    onSelectChapter(allChapters[currentChapterIndex - 1].id)
+                                }
+                            },
+                            enabled = pagerState.currentPage > 0 || hasPrevChapter
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBackIos,
+                                contentDescription = "Página anterior",
+                                tint = if (pagerState.currentPage > 0 || hasPrevChapter) Color.White else Color.Gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Pág. ${pagerState.currentPage + 1} de ${pages.size}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Desliza para pasar página (efecto 3D)",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = Color.White.copy(alpha = 0.6f)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                if (pagerState.currentPage < pages.size - 1) {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                                    }
+                                } else if (hasNextChapter) {
+                                    onSelectChapter(allChapters[currentChapterIndex + 1].id)
+                                }
+                            },
+                            enabled = pagerState.currentPage < pages.size - 1 || hasNextChapter
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                contentDescription = "Página siguiente",
+                                tint = if (pagerState.currentPage < pages.size - 1 || hasNextChapter) Color.White else Color.Gray,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
